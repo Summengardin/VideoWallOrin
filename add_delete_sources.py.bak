@@ -1,0 +1,475 @@
+#!/usr/bin/env python3
+
+################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
+import sys
+sys.path.append('../')
+import gi
+import configparser
+gi.require_version('Gst', '1.0')
+from gi.repository import Gst, GLib
+from gi.repository import GLib
+from ctypes import *
+import time
+import sys
+import math
+import random
+import platform
+
+import pyds
+
+MAX_DISPLAY_LEN=64
+MUXER_OUTPUT_WIDTH=1920
+MUXER_OUTPUT_HEIGHT=1080
+MUXER_BATCH_TIMEOUT_USEC = 33000
+TILED_OUTPUT_WIDTH=1280
+TILED_OUTPUT_HEIGHT=720
+GPU_ID = 0
+MAX_NUM_SOURCES = 4
+SINK_ELEMENT = "nveglglessink"
+
+
+g_num_sources = 0
+g_source_id_list = [0] * MAX_NUM_SOURCES
+g_eos_list = [False] * MAX_NUM_SOURCES
+g_source_enabled = [False] * MAX_NUM_SOURCES
+g_source_bin_list = [None] * MAX_NUM_SOURCES
+
+uri = ""
+uri_list = ["file:///home/seaonics/Dev/Samples/assets/Sintel.mp4", "file:///home/seaonics/Dev/Samples/assets/image2.mp4", "file:///home/seaonics/Dev/Samples/assets/Big_Buck.mp4"]#, "rtsp://192.168.0.14/stream-1.sdp"]
+# uri_list = ["rtsp://192.168.0.14/stream-1.sdp"]
+cam_uri = "rtsp://192.168.0.14/stream-1.sdp"
+
+loop = None
+pipeline = None
+streammux = None
+sink = None
+nvvideoconvert = None
+nvosd = None
+tiler = None
+
+def decodebin_child_added(child_proxy,Object,name,user_data):
+    print("Decodebin child added:", name, "\n")
+    if(name.find("decodebin") != -1):
+        Object.connect("child-added",decodebin_child_added,user_data)   
+    if(name.find("nvv4l2decoder") != -1):
+        Object.set_property("enable-max-performance", True)
+        Object.set_property("drop-frame-interval", 0)
+        Object.set_property("num-extra-surfaces", 0)
+
+
+
+def cb_newpad(decodebin,pad,data):
+    global streammux
+    print("In cb_newpad\n")
+    caps=pad.get_current_caps()
+    gststruct=caps.get_structure(0)
+    gstname=gststruct.get_name()
+    
+    # Need to check if the pad created by the decodebin is for video and not
+    # audio.
+    print("gstname=",gstname)
+    if(gstname.find("video")!=-1):
+        source_bin = data
+        queue = source_bin.get_by_name("queue")
+
+        q_pad = queue.get_static_pad("sink")
+        if not q_pad:
+            sys.stderr.write("Unable to get queue sink pad\n")
+
+        if not pad.link(q_pad) == Gst.PadLinkReturn.OK:
+            print("Unable to link decoder src pad to queue sink pad")
+    
+        # source_id = data
+        # pad_name = "sink_%u" % source_id
+        # print(pad_name)
+        # #Get a sink pad from the streammux, link to decodebin
+        # sinkpad = streammux.request_pad_simple(pad_name)
+        # if not sinkpad:
+        #     sys.stderr.write("Unable to create sink pad bin \n")
+
+        # if pad.link(sinkpad) != Gst.PadLinkReturn.OK:
+        #     sys.stderr.write("Failed to link decodebin to pipeline\n")
+
+
+def create_uridecode_bin(index, uri):
+    global g_source_id_list
+    print("Creating uridecodebin for [%s]" % uri)
+
+    g_source_id_list[index] = index
+    bin_name = f"source-bin-{g_source_id_list[index]}"
+    print(bin_name)
+
+    bin = Gst.Bin.new(bin_name)
+    if not bin:
+        sys.stderr.write(" Unable to create bin \n")
+
+    # Source element for reading from the uri.
+    uridecodebin=Gst.ElementFactory.make("uridecodebin", "uri-decode-bin")
+    if not uridecodebin:
+        sys.stderr.write(" Unable to create uri decode bin \n")
+
+    uridecodebin.set_property("uri", uri)
+    uridecodebin.connect("pad-added",cb_newpad, bin)
+    uridecodebin.connect("child-added",decodebin_child_added, bin)
+
+    # Queue
+    queue = Gst.ElementFactory.make("queue", "queue")
+    if not queue:
+        sys.stderr.write("Unable to create queue for uri decode bin \n")
+
+    queue.set_property("leaky", 2) # Dropping old buffers
+    queue.set_property("max-size-buffers", 1)
+    queue.set_property("max-size-bytes", 0)
+    queue.set_property("max-size-time", 0)
+
+    bin.add(uridecodebin)
+    bin.add(queue)
+
+
+    src_pad = queue.get_static_pad("src")
+    bin.add_pad(Gst.GhostPad.new("src", src_pad))
+
+    #Set status of the source to enabled
+    g_source_enabled[index] = True
+
+    return bin
+
+
+
+def stop_release_source(source_id):
+    global g_num_sources
+    global g_source_bin_list
+    global streammux
+    global pipeline
+
+    #Attempt to change status of source to be released 
+    state_return = g_source_bin_list[source_id].set_state(Gst.State.NULL)
+
+    if state_return == Gst.StateChangeReturn.SUCCESS:
+        print("STATE CHANGE SUCCESS\n")
+        pad_name = "sink_%u" % source_id
+        print(pad_name)
+        #Retrieve sink pad to be released
+        sinkpad = streammux.get_static_pad(pad_name)
+        #Send flush stop event to the sink pad, then release from the streammux
+        sinkpad.send_event(Gst.Event.new_flush_stop(False))
+        streammux.release_request_pad(sinkpad)
+        print("STATE CHANGE SUCCESS\n")
+        #Remove the source bin from the pipeline
+        pipeline.remove(g_source_bin_list[source_id])
+        source_id -= 1
+        g_num_sources -= 1
+
+    elif state_return == Gst.StateChangeReturn.FAILURE:
+        print("STATE CHANGE FAILURE\n")
+    
+    elif state_return == Gst.StateChangeReturn.ASYNC:
+        state_return = g_source_bin_list[source_id].get_state(Gst.CLOCK_TIME_NONE)
+        pad_name = "sink_%u" % source_id
+        print(pad_name)
+        sinkpad = streammux.get_static_pad(pad_name)
+        sinkpad.send_event(Gst.Event.new_flush_stop(False))
+        streammux.release_request_pad(sinkpad)
+        print("STATE CHANGE ASYNC\n")
+        pipeline.remove(g_source_bin_list[source_id])
+        source_id -= 1
+        g_num_sources -= 1
+
+
+def delete_sources(data):
+    global loop
+    global g_num_sources
+    global g_eos_list
+    global g_source_enabled
+
+    #First delete sources that have reached end of stream
+    for source_id in range(MAX_NUM_SOURCES):
+        if (g_eos_list[source_id] and g_source_enabled[source_id]):
+            g_source_enabled[source_id] = False
+            stop_release_source(source_id)
+
+    #Quit if no sources remaining
+    if (g_num_sources == 0):
+        loop.quit()
+        print("All sources stopped quitting")
+        return False
+
+    #Randomly choose an enabled source to delete
+    source_id = random.randrange(0, MAX_NUM_SOURCES)
+    while (not g_source_enabled[source_id]):
+        source_id = random.randrange(0, MAX_NUM_SOURCES)
+    #Disable the source
+    g_source_enabled[source_id] = False
+    #Release the source
+    print("Calling Stop %d " % source_id)
+    stop_release_source(source_id)
+
+    #Quit if no sources remaining
+    if (g_num_sources == 0):
+        loop.quit()
+        print("All sources stopped quitting")
+        return False
+
+    return True
+
+
+def add_sources(data):
+    global g_num_sources
+    global g_source_enabled
+    global g_source_bin_list
+    global pipeline
+
+    source_id = g_num_sources
+
+    #Randomly select an un-enabled source to add
+    source_id = random.randrange(0, MAX_NUM_SOURCES)
+    while (g_source_enabled[source_id]):
+        source_id = random.randrange(0, MAX_NUM_SOURCES)
+
+    #Enable the source
+    g_source_enabled[source_id] = True
+
+    print("Calling Start %d " % source_id)
+
+    #Create a uridecode bin with the chosen source id
+    source_bin = create_uridecode_bin(source_id, uri)
+
+    if (not source_bin):
+        sys.stderr.write("Failed to create source bin. Exiting.")
+        exit(1)
+    
+    #Add source bin to our list and to pipeline
+    g_source_bin_list[source_id] = source_bin
+    pipeline.add(source_bin)
+
+
+    #Set state of source bin to playing
+    state_return = g_source_bin_list[source_id].set_state(Gst.State.PLAYING)
+
+    if state_return == Gst.StateChangeReturn.SUCCESS:
+        print("STATE CHANGE SUCCESS\n")
+        source_id += 1
+
+    elif state_return == Gst.StateChangeReturn.FAILURE:
+        print("STATE CHANGE FAILURE\n")
+    
+    elif state_return == Gst.StateChangeReturn.ASYNC:
+        state_return = g_source_bin_list[source_id].get_state(Gst.CLOCK_TIME_NONE)
+        source_id += 1
+
+    elif state_return == Gst.StateChangeReturn.NO_PREROLL:
+        print("STATE CHANGE NO PREROLL\n")
+
+    g_num_sources += 1
+
+    #If reached the maximum number of sources, delete sources every 10 seconds
+    if (g_num_sources == MAX_NUM_SOURCES):
+        GLib.timeout_add_seconds(10, delete_sources, g_source_bin_list)
+        return False
+    
+    return True
+
+def bus_call(bus, message, loop):
+    global g_eos_list
+    t = message.type
+    if t == Gst.MessageType.EOS:
+        sys.stdout.write("End-of-stream\n")
+        loop.quit()
+    elif t==Gst.MessageType.WARNING:
+        err, debug = message.parse_warning()
+        sys.stderr.write("Warning: %s: %s\n" % (err, debug))
+    elif t == Gst.MessageType.ERROR:
+        err, debug = message.parse_error()
+        sys.stderr.write("Error: %s: %s\n" % (err, debug))
+        loop.quit()
+    elif t == Gst.MessageType.ELEMENT:
+        struct = message.get_structure()
+        #Check for stream-eos message
+        if struct is not None and struct.has_name("stream-eos"):
+            parsed, stream_id = struct.get_uint("stream-id")
+            if parsed:
+                #Set eos status of stream to True, to be deleted in delete-sources
+                print("Got EOS from stream %d" % stream_id)
+                g_eos_list[stream_id] = True
+    return True
+
+def main(args):
+    global g_num_sources
+    global g_source_bin_list
+    global uri
+    global uri_list
+
+    global loop
+    global pipeline
+    global streammux
+    global sink
+    global nvvideoconvert
+    global nvosd
+    global tiler
+    
+    if len(args) < 2:
+        sys.stderr.write("Usage: %s <uri> \n" % args[0])
+        sys.stderr.write(f"Using defaults instead \n")       
+    else:
+        uri_list = args[1:]
+        
+    num_sources=len(uri_list)
+    
+
+    # Standard GStreamer initialization
+    Gst.init(None)
+
+    # Create gstreamer elements */
+    # Create Pipeline element that will form a connection of other elements
+    print("Creating Pipeline \n ")
+    pipeline = Gst.Pipeline()
+    is_live = False
+
+    if not pipeline:
+        sys.stderr.write(" Unable to create Pipeline \n")
+    print("Creating streammux \n ")
+
+    # Create nvstreammux instance to form batches from one or more sources.
+    streammux = Gst.ElementFactory.make("nvstreammux", "Stream-muxer")
+    if not streammux:
+        sys.stderr.write(" Unable to create NvStreamMux \n")
+
+    streammux.set_property("batched-push-timeout", 25000)
+    streammux.set_property("batch-size", 4)
+
+    pipeline.add(streammux)
+    # streammux.set_property("live-source", 1)
+
+    for i in range(num_sources):
+        print("Creating source_bin ",i," \n ")
+        uri=uri_list[i]
+        if uri.find("rtsp://") == 0 :
+            is_live = True
+
+        source_bin=create_uridecode_bin(i, uri)
+        if not source_bin:
+            sys.stderr.write("Failed to create source bin. Exiting. \n")
+            sys.exit(1)
+        g_source_bin_list[i] = source_bin
+        pipeline.add(source_bin)
+        src_pad = source_bin.get_static_pad("src")
+        sink_pad = streammux.request_pad_simple(f"sink_{i}")
+        if src_pad.link(sink_pad) != Gst.PadLinkReturn.OK: 
+            sys.stderr.write(f"Unable to link source {i} to streammux \n")
+
+        # pipeline.add(queue)
+
+    g_num_sources = num_sources
+
+    
+
+    print("Creating tiler \n ")
+    tiler=Gst.ElementFactory.make("nvmultistreamtiler", "nvtiler")
+    if not tiler:
+        sys.stderr.write(" Unable to create tiler \n")
+
+    print("Creating nvvidconv \n ")
+    nvvideoconvert = Gst.ElementFactory.make("nvvideoconvert", "convertor")
+    if not nvvideoconvert:
+        sys.stderr.write(" Unable to create nvvidconv \n")
+
+    print("Creating nvosd \n ")
+    nvosd = Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
+    if not nvosd:
+        sys.stderr.write(" Unable to create nvosd \n")
+
+    print("Creating nv3dsink \n")
+    sink = Gst.ElementFactory.make("nv3dsink", "nv3d-sink")
+    if not sink:
+        sys.stderr.write(" Unable to create nv3dsink \n")
+
+    # streammux.set_property("config-file-path", "./mux_config_source1.txt")
+
+    
+
+    #Set streammux width and height
+    # streammux.set_property('width', MUXER_OUTPUT_WIDTH)
+    # streammux.set_property('height', MUXER_OUTPUT_HEIGHT)
+
+    #Set tiler properties
+    # tiler_rows=int(math.sqrt(num_sources))
+    # tiler_columns=int(math.ceil((1.0*num_sources)/tiler_rows))
+    tiler_rows = 2
+    tiler_columns = 2
+    tiler.set_property("rows",tiler_rows)
+    tiler.set_property("columns",tiler_columns)
+    tiler.set_property("width", TILED_OUTPUT_WIDTH)
+    tiler.set_property("height", TILED_OUTPUT_HEIGHT)
+
+    #Set gpu IDs of tiler, nvvideoconvert, and nvosd
+    tiler.set_property("gpu_id", GPU_ID)
+    nvvideoconvert.set_property("gpu_id", GPU_ID)
+    nvosd.set_property("gpu_id", GPU_ID)
+
+    #Set gpu ID of sink if not integrated gpu
+    # if(not platform_info.is_integrated_gpu() and not platform_info.is_platform_aarch64()):
+
+    print("Adding elements to Pipeline \n")
+    pipeline.add(tiler)
+    pipeline.add(nvvideoconvert)
+    pipeline.add(nvosd)
+    pipeline.add(sink)
+
+    # We link elements in the following order:
+    # sourcebin -> streammux -> nvinfer -> nvtracker -> nvdsanalytics ->
+    # nvtiler -> nvvideoconvert -> nvdsosd -> sink
+    print("Linking elements in the Pipeline \n")
+    streammux.link(tiler)
+    tiler.link(nvvideoconvert)
+    nvvideoconvert.link(nvosd)
+    nvosd.link(sink)
+
+    sink.set_property("sync", 0)
+    sink.set_property("qos",0)
+
+    # create an event loop and feed gstreamer bus mesages to it
+    loop = GLib.MainLoop()
+    bus = pipeline.get_bus()
+    bus.add_signal_watch()
+    bus.connect ("message", bus_call, loop)
+
+    pipeline.set_state(Gst.State.PAUSED)
+
+    # List the sources
+    print("Now playing...")
+    for i, source in enumerate(args):
+        if (i != 0):
+            print(i, ": ", source)
+
+    print("Starting pipeline \n")
+    # start play back and listed to events		
+    pipeline.set_state(Gst.State.PLAYING)
+
+    # GLib.timeout_add_seconds(10, add_sources, g_source_bin_list)
+
+    try:
+        loop.run()
+    except:
+        pass
+    # cleanup
+    print("Exiting app\n")
+    pipeline.set_state(Gst.State.NULL)
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))
