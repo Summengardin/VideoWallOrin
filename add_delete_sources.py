@@ -3,7 +3,7 @@
 import sys
 sys.path.append('../')
 import gi
-import configparser
+import os
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 from ctypes import *
@@ -13,16 +13,20 @@ import random
 
 import pyds
 
-MAX_DISPLAY_LEN = 64
-MUXER_OUTPUT_WIDTH = 1920
-MUXER_OUTPUT_HEIGHT = 1080
-MUXER_BATCH_TIMEOUT_USEC = 33000
-TILED_OUTPUT_WIDTH = 1280  
-TILED_OUTPUT_HEIGHT = 720
+TILED_OUTPUT_WIDTH = 3840  
+TILED_OUTPUT_HEIGHT = 2160
+TILED_OUTPUT_ROWS = 2
+TILED_OUTPUT_COLS = 2
 GPU_ID = 0
 MAX_NUM_SOURCES = 4
-SINK_ELEMENT = "nveglglessink"
-PLACEHOLDER_URI =  "file:///home/seaonics/Dev/Samples/assets/image_placeholder.png"
+PLACEHOLDER_IMAGE = "assets/image_placeholder.png"
+
+# PGIE_CONFIG_FILE = "/home/seaonics/Dev/VideoWallOrin/DeepStream-Yolo/config_infer_primary_yoloV8.txt"
+PGIE_CONFIG_FILE  = "/home/seaonics/Dev/VideoWallOrin/config/dstest_pgie_config.txt"
+PGIE_CLASS_ID_VEHICLE = 0
+PGIE_CLASS_ID_BICYCLE = 1
+PGIE_CLASS_ID_PERSON = 2
+PGIE_CLASS_ID_ROADSIGN = 3
 
 g_num_sources = 0
 g_source_id_list = [0] * MAX_NUM_SOURCES
@@ -30,8 +34,10 @@ g_eos_list = [False] * MAX_NUM_SOURCES
 g_source_enabled = [False] * MAX_NUM_SOURCES
 g_source_bin_list = [None] * MAX_NUM_SOURCES
 
-uri_list = ["file:///home/seaonics/Dev/Samples/assets/Sintel.mp4", "file:///home/seaonics/Dev/Samples/assets/image2.mp4", "file:///home/seaonics/Dev/Samples/assets/Big_Buck.mp4"]#,]
+example_files = ["assets/Sintel.mp4", "assets/image2.mp4", "assets/Big_Buck.mp4"]
+# uri_list = ["file://assets/Sintel.mp4", "file:///home/seaonics/Dev/Samples/assets/image2.mp4", "file:///home/seaonics/Dev/Samples/assets/Big_Buck.mp4"]#,]
 cam_uri = "rtsp://192.168.0.14/stream-1.sdp"
+cam_name = ""
 
 loop = None
 pipeline = None
@@ -40,6 +46,159 @@ sink = None
 nvvideoconvert = None
 nvosd = None
 tiler = None
+pgie = None
+
+pgie_classes_str= ["Vehicle", "TwoWheeler", "Person","RoadSign"]
+
+
+def files_to_uri_list(files):
+    cwd = os.getcwd()
+    uri_list = [f"file://{cwd}/{file_path}" for file_path in files]
+
+    return uri_list
+
+
+'''def osd_sink_pad_buffer_probe(pad, info, u_data):
+    gst_buffer = info.get_buffer()
+    if not gst_buffer:
+        print("Unable to get GstBuffer")
+        return Gst.PadProbeReturn.OK
+
+    # Retrieve batch metadata from the gst_buffer
+    batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
+    # print(f"Number of frames {batch_meta.frame_meta_pool.num_full_elements}")
+    l_frame = batch_meta.frame_meta_list
+    while l_frame is not None:
+        try:
+            frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
+        except StopIteration:
+            break
+
+
+        display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+        display_meta.num_labels = 1
+        py_nvosd_text_params = display_meta.text_params[0]
+
+        
+        py_nvosd_text_params.display_text = f"Stream {frame_meta.source_id}  Resolution: {frame_meta.source_frame_width}x{frame_meta.source_frame_height}"
+        # py_nvosd_text_params.display_text = f"Stream   Resolution: {frame_meta.source_frame_width}x{frame_meta.source_frame_height}"
+
+
+        # Set text location
+        py_nvosd_text_params.x_offset = 10
+        py_nvosd_text_params.y_offset = 10
+
+        # Display text color
+        py_nvosd_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)  # White
+        py_nvosd_text_params.font_params.font_size = 24
+        py_nvosd_text_params.font_params.font_name =  "Serif"
+
+        # Text background color
+        py_nvosd_text_params.set_bg_clr = 1
+        py_nvosd_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 1.0)  # Black
+
+
+        pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+
+        try:
+            l_frame = l_frame.next
+        except StopIteration:
+            break
+
+    return Gst.PadProbeReturn.OK'''
+
+PGIE_CLASS_ID_VEHICLE = 0
+PGIE_CLASS_ID_BICYCLE = 1
+PGIE_CLASS_ID_PERSON = 2
+PGIE_CLASS_ID_ROADSIGN = 3
+
+def osd_sink_pad_buffer_probe(pad,info,u_data):
+    return Gst.PadProbeReturn.OK
+    frame_number=0
+    num_rects=0
+
+    gst_buffer = info.get_buffer()
+    if not gst_buffer:
+        print("Unable to get GstBuffer ")
+        return
+
+    # Retrieve batch metadata from the gst_buffer
+    # Note that pyds.gst_buffer_get_nvds_batch_meta() expects the
+    # C address of gst_buffer as input, which is obtained with hash(gst_buffer)
+    batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
+    l_frame = batch_meta.frame_meta_list
+    while l_frame is not None:
+        try:
+            # Note that l_frame.data needs a cast to pyds.NvDsFrameMeta
+            # The casting is done by pyds.NvDsFrameMeta.cast()
+            # The casting also keeps ownership of the underlying memory
+            # in the C code, so the Python garbage collector will leave
+            # it alone.
+            frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
+        except StopIteration:
+            break
+
+        #Intiallizing object counter with 0.
+        obj_counter = {
+            PGIE_CLASS_ID_VEHICLE:0,
+            PGIE_CLASS_ID_PERSON:0,
+            PGIE_CLASS_ID_BICYCLE:0,
+            PGIE_CLASS_ID_ROADSIGN:0
+        }
+        frame_number=frame_meta.frame_num
+        num_rects = frame_meta.num_obj_meta
+        l_obj=frame_meta.obj_meta_list
+        while l_obj is not None:
+            try:
+                # Casting l_obj.data to pyds.NvDsObjectMeta
+                obj_meta=pyds.NvDsObjectMeta.cast(l_obj.data)
+            except StopIteration:
+                break
+            obj_counter[obj_meta.class_id] += 1
+            obj_meta.rect_params.border_color.set(0.0, 0.0, 1.0, 0.8) #0.8 is alpha (opacity)
+            try: 
+                l_obj=l_obj.next
+            except StopIteration:
+                break
+
+        # Acquiring a display meta object. The memory ownership remains in
+        # the C code so downstream plugins can still access it. Otherwise
+        # the garbage collector will claim it when this probe function exits.
+        display_meta=pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+        display_meta.num_labels = 1
+        py_nvosd_text_params = display_meta.text_params[0]
+        # Setting display text to be shown on screen
+        # Note that the pyds module allocates a buffer for the string, and the
+        # memory will not be claimed by the garbage collector.
+        # Reading the display_text field here will return the C address of the
+        # allocated string. Use pyds.get_string() to get the string content.
+        py_nvosd_text_params.display_text = "Frame Number={} Number of Objects={} Vehicle_count={} Person_count={}".format(frame_number, num_rects, obj_counter[PGIE_CLASS_ID_VEHICLE], obj_counter[PGIE_CLASS_ID_PERSON])
+
+        # Now set the offsets where the string should appear
+        py_nvosd_text_params.x_offset = 10
+        py_nvosd_text_params.y_offset = 12
+
+        # Font , font-color and font-size
+        py_nvosd_text_params.font_params.font_name = "Serif"
+        py_nvosd_text_params.font_params.font_size = 10
+        # set(red, green, blue, alpha); set to White
+        py_nvosd_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+
+        # Text background color
+        py_nvosd_text_params.set_bg_clr = 1
+        # set(red, green, blue, alpha); set to Black
+        py_nvosd_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 1.0)
+        # Using pyds.get_string() to get display_text as string
+        print(pyds.get_string(py_nvosd_text_params.display_text))
+        pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+        try:
+            l_frame=l_frame.next
+        except StopIteration:
+            break
+			
+    return Gst.PadProbeReturn.OK	
+
+
 
 def decodebin_child_added(child_proxy, Object, name, user_data):
     print("Decodebin child added:", name, "\n")
@@ -49,6 +208,7 @@ def decodebin_child_added(child_proxy, Object, name, user_data):
         Object.set_property("enable-max-performance", True)
         Object.set_property("drop-frame-interval", 0)
         Object.set_property("num-extra-surfaces", 0)
+
 
 def cb_newpad(decodebin, pad, data):
     global streammux
@@ -69,7 +229,8 @@ def cb_newpad(decodebin, pad, data):
         if not pad.link(q_pad) == Gst.PadLinkReturn.OK:
             print("Unable to link decoder src pad to queue sink pad")
 
-def create_uridecode_bin(index, uri):
+
+def create_uridecode_bin(index:int, uri:str):
     global g_source_id_list
     print("Creating uridecodebin for [%s]" % uri)
 
@@ -93,7 +254,7 @@ def create_uridecode_bin(index, uri):
     if not queue:
         sys.stderr.write("Unable to create queue for uri decode bin \n")
 
-    queue.set_property("leaky", 2)  # Dropping old buffers
+    queue.set_property("leaky", 1)  # Dropping old buffers
     queue.set_property("max-size-buffers", 1)
     queue.set_property("max-size-bytes", 0)
     queue.set_property("max-size-time", 0)
@@ -105,15 +266,98 @@ def create_uridecode_bin(index, uri):
     src_pad = queue.get_static_pad("src")
     bin.add_pad(Gst.GhostPad.new("src", src_pad))
 
-    
-
     # g_source_enabled[index] = True
 
     return bin
 
-def create_placeholder_bin(index):
+
+def create_aravis_bin(index:int, camera_name: str=None):
     global g_source_id_list
-    global PLACEHOLDER_URI
+    print("Creating bin for aravissrc")
+
+    g_source_id_list[index] = index
+    bin_name = f"source-bin-{g_source_id_list[index]}"
+    print(bin_name)
+
+    bin = Gst.Bin.new(bin_name)
+    if not bin:
+        sys.stderr.write(" Unable to create bin \n")
+    
+    aravissrc = Gst.ElementFactory.make("aravissrc", "aravis-source")
+    if not aravissrc:
+        sys.stderr.write(" Unable to create aravissrc")
+
+    capsfilter1 = Gst.ElementFactory.make("capsfilter", "capsfilter1")
+    if not capsfilter1:
+        sys.stderr.write(" Unable to create capsfilter \n")
+    
+    caps = Gst.Caps.from_string("video/x-bayer,format=rggb,width=1920,height=1080,binning=1x1, skipping=1x1")
+    capsfilter1.set_property("caps", caps)
+
+
+    queue = Gst.ElementFactory.make("queue", "queue")
+    if not queue:
+        sys.stderr.write(" Unable to create queue \n")
+
+
+    tcamconvert = Gst.ElementFactory.make("tcamconvert", "tcam-convert")
+    if not tcamconvert:
+        sys.stderr.write(" Unable to create tcamconvert element \n")
+
+    # Create the nvvidconv element to convert to NVMM memory
+    nvvidconv = Gst.ElementFactory.make("nvvideoconvert", "nvvideo-converter")
+    if not nvvidconv:
+        sys.stderr.write(" Unable to create nvvideoconvert element \n")
+
+    # Create the capsfilter element to enforce NVMM memory
+    capsfilter2 = Gst.ElementFactory.make("capsfilter", "capsfilter2")
+    if not capsfilter2:
+        sys.stderr.write(" Unable to create capsfilter element \n")
+
+    caps = Gst.Caps.from_string("video/x-raw(memory:NVMM)")
+    capsfilter2.set_property("caps", caps)
+
+    
+
+    aravissrc.set_property("exposure-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
+    aravissrc.set_property("exposure", 10000)
+    aravissrc.set_property("gain-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
+    aravissrc.set_property("gain", 10)
+    aravissrc.set_property("num-arv-buffers", 200)
+    if camera_name is not None:
+        aravissrc.set_property("camera-name", camera_name)
+
+
+    queue.set_property("leaky", 1)  # Dropping old buffers
+    queue.set_property("max-size-buffers", 1)
+    queue.set_property("max-size-bytes", 0)
+    queue.set_property("max-size-time", 0)
+
+
+
+    bin.add(aravissrc)
+    bin.add(capsfilter1)
+    bin.add(queue)
+    bin.add(tcamconvert)
+    bin.add(nvvidconv)
+    bin.add(capsfilter2)
+
+    aravissrc.link(capsfilter1)
+    capsfilter1.link(queue)
+    queue.link(tcamconvert)
+    tcamconvert.link(nvvidconv)
+    nvvidconv.link(capsfilter2)
+
+    src_pad = capsfilter2.get_static_pad("src")
+    bin.add_pad(Gst.GhostPad.new("src", src_pad))
+
+    return bin
+
+
+
+def create_placeholder_bin(index:int):
+    global g_source_id_list
+    global PLACEHOLDER_IMAGE
     print("Creating placeholder bin ")
 
     g_source_id_list[index] = index
@@ -129,7 +373,7 @@ def create_placeholder_bin(index):
     if not src_element:
         sys.stderr.write(" Unable to create file source \n")
 
-    src_element.set_property("location", PLACEHOLDER_URI.replace("file://", ""))
+    src_element.set_property("location", f"./{PLACEHOLDER_IMAGE}")
 
     # Create the PNG decoder
     png_decoder = Gst.ElementFactory.make("pngdec", "png-decoder")
@@ -172,7 +416,7 @@ def create_placeholder_bin(index):
         sys.stderr.write("Unable to create queue for placeholder bin \n")
 
 
-    queue.set_property("leaky", 2)  # Dropping old buffers
+    queue.set_property("leaky", 1)  # Dropping old buffers
     queue.set_property("max-size-buffers", 1)
     queue.set_property("max-size-bytes", 0)
     queue.set_property("max-size-time", 0)
@@ -272,7 +516,7 @@ def delete_sources(data):
 
     return True
 
-def add_source(uri=None, source_id=None):
+def add_source(uri=None, source_id=None, camera_name=None):
     global g_num_sources
     global g_source_enabled
     global g_source_bin_list
@@ -292,19 +536,23 @@ def add_source(uri=None, source_id=None):
         source_id = (source_id + 1) % MAX_NUM_SOURCES
         cnt += 1
         if cnt > MAX_NUM_SOURCES:
-            print("All sources enabled. Exiting")
+            print("All sources enabled. Unale to add source")
             print(g_source_enabled)
             return False
         source_id = (source_id + 1) % MAX_NUM_SOURCES
 
     g_source_enabled[source_id] = True
 
-    if uri is None:
-        print("No URI provided. Using placeholder.")
-        source_bin = create_placeholder_bin(source_id)
-    else:
+    if camera_name is not None:
+        print(f"Adding source {source_id} for camera: {camera_name}")
+        print(f"DEBUG: camera name supplied, suggested using aravissrc")
+        source_bin = create_aravis_bin(source_id, camera_name)
+    elif uri is not None:
         print(f"Adding source {source_id} for URI: {uri}")
         source_bin = create_uridecode_bin(source_id, uri)
+    else:
+        print(f"Adding placeholder at source {source_id}")
+        source_bin = create_placeholder_bin(source_id)
 
     if not source_bin:
         sys.stderr.write("Failed to create source bin. Exiting.")
@@ -374,6 +622,7 @@ def bus_call(bus, message, loop):
 def main(args):
     global g_num_sources
     global g_source_bin_list
+    global example_files
     global uri_list
 
     global loop
@@ -383,12 +632,16 @@ def main(args):
     global nvvideoconvert
     global nvosd
     global tiler
+    global pgie
 
     if len(args) < 2:
         sys.stderr.write("Usage: %s <uri> \n" % args[0])
         sys.stderr.write(f"Using defaults instead \n")
+        
+        uri_list = files_to_uri_list(example_files)
     else:
         uri_list = args[1:]
+
 
     # num_sources = len(uri_list)
 
@@ -406,40 +659,38 @@ def main(args):
     if not streammux:
         sys.stderr.write(" Unable to create NvStreamMux \n")
 
-    streammux.set_property("batched-push-timeout", 25000)
+    streammux.set_property("batched-push-timeout", 20000)
     streammux.set_property("batch-size", MAX_NUM_SOURCES)
     streammux.set_property("config-file-path", "/home/seaonics/Dev/Samples/mux_config_source1.txt")
 
     pipeline.add(streammux)
 
-    # for i in range(num_sources):
-    #     print("Creating source_bin ", i, " \n ")
+
+    # for i in range(len(uri_list)):
     #     uri = uri_list[i]
-    #     if uri.find("rtsp://") == 0:
-    #         is_live = True
+    #     add_source(uri, i)
 
-    #     source_bin = create_uridecode_bin(i, uri)
-    #     if not source_bin:
-    #         sys.stderr.write("Failed to create source bin. Exiting. \n")
-    #         sys.exit(1)
-    #     g_source_bin_list[i] = source_bin
-    #     pipeline.add(source_bin)
-    #     src_pad = source_bin.get_static_pad("src")
-    #     sink_pad = streammux.request_pad_simple(f"sink_{i}")
-    #     if src_pad.link(sink_pad) != Gst.PadLinkReturn.OK:
-    #         sys.stderr.write(f"Unable to link source {i} to streammux \n")
+    # global cam_uri
+    # add_source(uri=cam_uri, source_id=3)
 
-
-    for i in range(len(uri_list)):
-        uri = uri_list[i]
-        add_source(uri, i)
-
-    global cam_uri
-    add_source(uri=cam_uri)
-
+    global cam_name
+    add_source(camera_name=cam_name, source_id=3)
 
 
     # g_num_sources = num_sources
+
+
+
+
+    print("Creating queue \n ")
+    queue = Gst.ElementFactory.make("queue", "queue")
+    if not queue:
+        sys.stderr.write(" Unable to create queue \n")
+
+    print("Creating pgie \n ")
+    pgie = Gst.ElementFactory.make("nvinfer", "primary-inference")
+    if not pgie:
+        sys.stderr.write(" Unable to create pgie \n")
 
     print("Creating tiler \n ")
     tiler = Gst.ElementFactory.make("nvmultistreamtiler", "nvtiler")
@@ -459,33 +710,72 @@ def main(args):
     print("Creating nv3dsink \n")
     sink = Gst.ElementFactory.make("nv3dsink", "nv3d-sink")
     if not sink:
-        sys.stderr.write(" Unable to create nv3dsink \n")
+        sys.stderr.write(" Unable to create sink \n")
 
-    tiler_rows = 2
-    tiler_columns = 2
-    tiler.set_property("rows", tiler_rows)
-    tiler.set_property("columns", tiler_columns)
+
+    queue.set_property("leaky", 1)
+    queue.set_property("max-size-buffers", 1)
+    queue.set_property("max-size-bytes", 0)
+    queue.set_property("max-size-time", 0)
+
+
+    pgie.set_property('config-file-path', PGIE_CONFIG_FILE)
+    pgie_batch_size=pgie.get_property("batch-size")
+    if(pgie_batch_size < MAX_NUM_SOURCES):
+        print("WARNING: Overriding infer-config batch-size",pgie_batch_size," with number of sources ", g_num_sources," \n")
+    pgie.set_property("batch-size",MAX_NUM_SOURCES)
+
+    pgie.set_property("gpu_id", GPU_ID)
+
+    tiler.set_property("compute-hw", 2)
+    tiler.set_property("rows", TILED_OUTPUT_ROWS)
+    tiler.set_property("columns", TILED_OUTPUT_COLS)
     tiler.set_property("width", TILED_OUTPUT_WIDTH)
     tiler.set_property("height", TILED_OUTPUT_HEIGHT)
+    # tiler.set_property("compute-hw", 2)
 
-    tiler.set_property("gpu_id", GPU_ID)
-    nvvideoconvert.set_property("gpu_id", GPU_ID)
-    nvosd.set_property("gpu_id", GPU_ID)
+    # nvvideoconvert.s et_property("compute-hw", 2)
 
-    print("Adding elements to Pipeline \n")
-    pipeline.add(tiler)
-    pipeline.add(nvvideoconvert)
-    pipeline.add(nvosd)
-    pipeline.add(sink)
-
-    print("Linking elements in the Pipeline \n")
-    streammux.link(tiler)
-    # tiler.link(nvvideoconvert)
-    tiler.link(nvosd)
-    nvosd.link(sink)
 
     sink.set_property("sync", 0)
-    # sink.set_property("qos", 0)
+    sink.set_property("qos", 0)
+    # sink.set_property("plane-id", 2)
+    # sink.set_property("window-x", 0)
+    # sink.set_property("window-y", 0)
+    # sink.set_property("window-width", TILED_OUTPUT_WIDTH)
+    # sink.set_property("window-height", TILED_OUTPUT_HEIGHT)
+    # sink.set_property("processing-deadline", 0)
+
+
+    videoconvert = Gst.ElementFactory.make("videoconvert", "videoconvert")
+
+    print("Adding elements to Pipeline \n")
+    pipeline.add(queue)
+    # pipeline.add(tiler)
+    # pipeline.add(nvosd)
+    # pipeline.add(nvvideoconvert)
+    # pipeline.add(videoconvert)
+    pipeline.add(sink)
+    # pipeline.add(pgie)
+
+    print("Linking elements in the Pipeline \n")
+    streammux.link(queue)
+    # queue.link(pgie)
+    # queue.link(tiler)
+    # tiler.link(nvosd)
+    # tiler.link(nvosd)
+    queue.link(sink)
+    # videoconvert.link(sink)
+    # queue.link(sink)
+
+
+
+    osdsinkpad = tiler.get_static_pad("sink")
+    if not osdsinkpad:
+        print("Unable to get sink pad")
+    else:
+        osdsinkpad.add_probe(Gst.PadProbeType.BUFFER, osd_sink_pad_buffer_probe, 0)
+    
 
     loop = GLib.MainLoop()
     bus = pipeline.get_bus()
@@ -501,8 +791,10 @@ def main(args):
     print("Starting pipeline \n")
     pipeline.set_state(Gst.State.PLAYING)
 
-    GLib.timeout_add_seconds(1, add_source, None)
-    GLib.timeout_add_seconds(15, add_source, uri_list[0])
+    # GLib.timeout_add_seconds(1, add_source, None)
+    # GLib.timeout_add_seconds(15, add_source, uri_list[0])
+
+    Gst.debug_bin_to_dot_file(pipeline, Gst.DebugGraphDetails.ALL, "add_delete_sources")
 
     try:
         loop.run()
