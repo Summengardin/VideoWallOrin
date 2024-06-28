@@ -13,17 +13,22 @@ class GUIWindow(Gtk.Window):
         vbox_btn = Gtk.Box(spacing=6, orientation=Gtk.Orientation.VERTICAL)
         hbox.append(vbox_btn)
 
-        # Start Button
-        self.start_button = Gtk.Button.new_with_label('Start')
-        self.start_button.set_size_request(50, 50)
-        self.start_button.connect('clicked', self.on_start_clicked)
-        vbox_btn.append(self.start_button)
+    
+        # Add Source Button
+        self.add_source_button = Gtk.Button.new_with_label('Add Source')
+        self.add_source_button.set_size_request(50, 50)
+        self.add_source_button.connect('clicked', self.on_add_source_clicked)
+        vbox_btn.append(self.add_source_button)
 
-        # Stop Button
-        self.stop_button = Gtk.Button.new_with_label('Stop')
-        self.stop_button.set_size_request(50, 50)
-        self.stop_button.connect('clicked', self.on_stop_clicked)
-        vbox_btn.append(self.stop_button)
+        # Remove Source Button
+        self.remove_source_button = Gtk.Button.new_with_label('Remove Source')
+        self.remove_source_button.set_size_request(50, 50)
+        self.remove_source_button.connect('clicked', self.on_remove_source_clicked)
+        vbox_btn.append(self.remove_source_button)
+
+        # State Label
+        self.state_label = Gtk.Label(label="State: Idle")
+        vbox_btn.append(self.state_label)
 
         # Zoom Slider
         zoom_box = Gtk.Box(spacing=6, orientation=Gtk.Orientation.VERTICAL)
@@ -42,22 +47,32 @@ class GUIWindow(Gtk.Window):
         zoom_box.append(self.zoom_label)
         hbox.append(zoom_box)
 
+        self.cb_zoom_changed = lambda value: print(f"cb_zoom: {value}")
+        self.cb_add_source_clicked = lambda: print("cb_add_source_clicked")
+        self.cb_remove_source_clicked = lambda: print("cb_remove_source_clicked")
 
-    def on_start_clicked(self, widget):
-        print("Start clicked")
-        # Add your start pipeline callback function here
+    def on_add_source_clicked(self, widget):
+        self.cb_add_source_clicked()
 
-    def on_stop_clicked(self, widget):
-        print("Stop clicked")
-        # Add your stop pipeline callback function here
+    def on_remove_source_clicked(self, widget):
+        self.cb_remove_source_clicked()
 
     def on_zoom_changed(self, widget):
         value = self.zoom_slider.get_adjustment().get_value()
-        print(f"Zoom changed: {value}")
-        # Add your brightness adjustment callback function here
+        self.cb_zoom_changed(value)
 
+    def set_state(self, state: str):
+        self.state_label.set_label(f"State: {state}")
 
-class App(Gtk.Application):
+    def set_callback(self, property: str, callback: callable):
+        if property == "zoom":
+            self.cb_zoom_changed = callback
+        elif property == "add_source":
+            self.cb_add_source_clicked = callback
+        elif property == "remove_source":
+            self.cb_remove_source_clicked = callback
+
+class GUIApplication(Gtk.Application):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, application_id="org.example.myapp", **kwargs)
         self.connect("activate", self.do_activate)
@@ -71,5 +86,5 @@ class App(Gtk.Application):
 
 
 if __name__ == "__main__":
-    app = App()    
+    app = GUIApplication()    
     app.run()
