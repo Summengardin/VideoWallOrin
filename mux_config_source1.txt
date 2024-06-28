@@ -10,7 +10,7 @@ overall-max-fps-n=60
 
 overall-max-fps-d=1
 
-overall-min-fps-n=5
+overall-min-fps-n=60
 
 overall-min-fps-d=1
 
