@@ -661,7 +661,10 @@ def add_source(uri=None, source_id=None, camera_name=None):
     if camera_name is not None:
         print(f"Adding source {source_id} for camera: {camera_name}")
         print(f"DEBUG: camera name supplied, suggested using aravissrc")
-        source_bin = create_aravis_bin(source_id, camera_name)
+        if camera_name == "10.1.3.79":
+            source_bin = create_aravis_bin(source_id, camera_name)
+        else:
+            source_bin = create_aravis_bin_(source_id, camera_name)
     elif uri is not None:
         print(f"Adding source {source_id} for URI: {uri}")
         source_bin = create_uridecode_bin(source_id, uri)
@@ -791,6 +794,9 @@ def main(args):
     global cam_name
     cam_name = "10.1.3.75"
     add_source(camera_name=cam_name, source_id=3)
+    add_source(camera_name="10.1.3.74", source_id=2)
+    add_source(source_id=1)
+    # add_source(camera_name="10.1.3.74", source_id=2)
 
 
     # global cam_ips
@@ -879,12 +885,12 @@ def main(args):
     # pipeline.add(nvvideoconvert)
     # pipeline.add(videoconvert)
     pipeline.add(sink)
-    # pipeline.add(pgie)
+    pipeline.add(pgie)
 
     print("Linking elements in the Pipeline \n")
     streammux.link(queue)
-    queue.link(tiler)
-    # pgie.link(tiler)
+    queue.link(pgie)
+    pgie.link(tiler)
     tiler.link(nvosd)
     # tiler.link(nvosd)
     nvosd.link(sink)
@@ -916,7 +922,7 @@ def main(args):
 
     # GLib.timeout_add_seconds(1, add_source, None)
     # GLib.timeout_add_seconds(15, add_source, uri_list[0])
-    GLib.timeout_add(1, zoom, "10.1.3.75")
+    # GLib.timeout_add(1, zoom, "10.1.3.75")
 
 
     Gst.debug_bin_to_dot_file(pipeline, Gst.DebugGraphDetails.ALL, "add_delete_sources")
