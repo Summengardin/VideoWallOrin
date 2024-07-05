@@ -14,4 +14,4 @@ overall-min-fps-n=60
 
 overall-min-fps-d=1
 
-max-same-source-frames= 1
+max-same-source-frames=1
