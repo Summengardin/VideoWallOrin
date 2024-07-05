@@ -124,6 +124,6 @@ class GUI(Gtk.Application):
 
 if __name__ == "__main__":
     labels = ["10.1.3.74", "10.1.3.75", "10.1.3.76", "10.1.3.77", "10.1.3.78", "10.1.3.79"]
-    callbacks = [partial(lambda i, button, state: print(f"Button {labels[i]}: {state}"), i) for i in range(len(labels))]
+    callbacks = [partial ( lambda i, button, state: print(f"Button {labels[i]}: {state}"), i ) for i in range(len(labels))]
     app = GUI(btn_callbacks=callbacks, btn_labels=labels)    
     app.run()
