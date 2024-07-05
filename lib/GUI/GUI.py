@@ -1,6 +1,7 @@
 import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
+from functools import partial
 
 
 class GUI(Gtk.Application):
@@ -9,12 +10,10 @@ class GUI(Gtk.Application):
         
         self.btn_labels = btn_labels if btn_labels is not None else ["Button 1", "Button 2", "Button 3", "Button 4"]
         self.btn_callbacks = btn_callbacks if btn_callbacks is not None else [lambda button, state: print(f"{button.get_label()}")] * len(self.btn_labels)
-        
-        self.connect("activate", self.do_activate)
-
 
 
     def do_activate(self, *args, **kwargs):
+
         self.window = Gtk.ApplicationWindow.new(application=self)
         self.window.set_default_size(600, 400)
         self.window.set_title("Gstreamer Source control")
@@ -125,6 +124,6 @@ class GUI(Gtk.Application):
 
 if __name__ == "__main__":
     labels = ["10.1.3.74", "10.1.3.75", "10.1.3.76", "10.1.3.77", "10.1.3.78", "10.1.3.79"]
-    callbacks = [lambda button, state: print(f"Button {labels[i]}: {state} ") for i in range(len(labels))]
+    callbacks = [partial(lambda i, button, state: print(f"Button {labels[i]}: {state}"), i) for i in range(len(labels))]
     app = GUI(btn_callbacks=callbacks, btn_labels=labels)    
     app.run()
