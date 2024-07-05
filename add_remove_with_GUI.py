@@ -60,8 +60,7 @@ nvvideoconvert = None
 nvosd = None
 tiler = None
 pgie = None
-gui_application = None
-window = None
+gui = None
 zoom_level = 0
 
 
@@ -416,9 +415,6 @@ def add_source(uri=None, source_id=None, camera_name=None):
 
     g_num_sources += 1
 
-    if window is not None:
-        window.set_source_labels([source.name for source in g_sources])
-
     return True
 
 
@@ -429,7 +425,6 @@ def stop_release_source(source_id):
     global g_source_bin_list
     global streammux
     global pipeline
-    global window
 
     if g_sources[source_id].bin is None:
         return
@@ -440,6 +435,7 @@ def stop_release_source(source_id):
         pad_name = "sink_%u" % source_id
         sinkpad = streammux.get_static_pad(pad_name)
         if sinkpad is not None:
+            sinkpad.send_event(Gst.Event.new_eos())
             sinkpad.send_event(Gst.Event.new_flush_stop(False))
             streammux.release_request_pad(sinkpad)
 
@@ -464,8 +460,6 @@ def stop_release_source(source_id):
     else:
         print("Unable to stop and release source %d" % source_id)
 
-    if window is not None:
-        window.set_source_labels([sources.name for sources in g_sources])
 
 
 
@@ -489,8 +483,6 @@ def bus_call(bus, message, loop):
             if parsed:
                 print("Got EOS from stream %d" % source_id)
                 g_sources[source_id].eos = True
-                stop_release_source(source_id)
-                add_source(source_id=source_id)
     return True
 
 
@@ -630,20 +622,20 @@ def cb_add_remove_source(source_id, ip, button, state):
 
 
 def run_gui():
-    global gui_application
+    global gui
     global cam_ips
 
     labels = cam_ips
     callbacks = [lambda button, state: cb_add_remove_source(source_id=i, ip=cam_ips[i], button=button, state=state) for i in range(len(cam_ips))]
 
-    gui_application = GUI(btn_labels=labels, btn_callbacks=callbacks)
-    gui_application.set_callback("zoom", set_zoom_level)
+    gui = GUI(btn_labels=labels, btn_callbacks=callbacks)
+    gui.set_callback("zoom", set_zoom_level)
 
-    threading.Thread(target=gui_application.run).start()
+    threading.Thread(target=gui.run).start()
 
 
 def main():
-    global window, g_add_source_stage
+    global g_add_source_stage
     run_pipeline()
     run_gui()
     
