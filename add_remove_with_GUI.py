@@ -3,7 +3,7 @@ gi.require_version('Gst', '1.0')
 gi.require_version('GLib', '2.0')
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gst, GLib, Gtk
-from simple_gui import GUIWindow, GUIApplication
+from lib.GUI.GUI import GUI
 from lib.utils import index_dataclass
 from dataclasses import dataclass 
 from enum import Enum
@@ -67,8 +67,11 @@ zoom_level = 0
 
 example_files = ["assets/Sintel.mp4", "assets/image2.mp4", "assets/Big_Buck.mp4"]
 cam_name = ""
-cam_ips = ["10.1.3.75", "10.1.3.74"]
-ip_to_serial = {"10.1.3.75": "46320531", "10.1.3.74": "40344360"}
+cam_ips = ["10.1.3.74", "10.1.3.75", "10.1.3.76", "10.1.3.77"]
+ip_to_serial = {"10.1.3.74": "40344360",
+                "10.1.3.75": "46320531",    
+                "10.1.3.76": "40336215",
+                "10.1.3.77": "40341020"}
 
 
 
@@ -525,7 +528,7 @@ def main_pipeline():
     pipeline.add(streammux)
 
     # initate_sources()
-    add_source(camera_name="10.1.3.75")
+    add_source(camera_name="10.1.3.75", source_id=1)
     # add_source(camera_name="10.1.3.74")
 
     print("Creating queue \n")
@@ -615,41 +618,27 @@ def main_pipeline():
     pipeline.set_state(Gst.State.NULL)
 
 
-def cb_add_source():
-    global g_add_source_stage, window
-    if g_add_source_stage == 0:
-        add_source(camera_name="10.1.3.74", source_id=2)
-        g_add_source_stage += 1
-    elif g_add_source_stage == 1:
-        add_source(camera_name="10.1.3.75", source_id=3)
-        g_add_source_stage += 1
-    
-    if window is not None:
-        window.set_state_label(g_add_source_stage)
-
-def cb_remove_source():
-    global g_add_source_stage
-    if g_add_source_stage == 2:
-        stop_release_source(source_id=3)
-        print("async Stopped source 3 \n")
-        add_source(source_id=3)
-        print("async Added source 3 \n")
-        g_add_source_stage -= 1
-    elif g_add_source_stage == 1:
-        stop_release_source(source_id=2)
-        add_source(source_id=2)
-        g_add_source_stage -= 1
-
-    if window is not None:
-        window.set_state_label(g_add_source_stage)
-
 def run_pipeline():
     threading.Thread(target=main_pipeline).start()
 
 
+def cb_add_remove_source(source_id, ip, button, state):
+    if state == "On":
+        add_source(source_id=source_id, camera_name=ip)
+    else:
+        stop_release_source(source_id=source_id)
+
+
 def run_gui():
     global gui_application
-    gui_application = GUIApplication()
+    global cam_ips
+
+    labels = cam_ips
+    callbacks = [lambda button, state: cb_add_remove_source(source_id=i, ip=cam_ips[i], button=button, state=state) for i in range(len(cam_ips))]
+
+    gui_application = GUI(btn_labels=labels, btn_callbacks=callbacks)
+    gui_application.set_callback("zoom", set_zoom_level)
+
     threading.Thread(target=gui_application.run).start()
 
 
@@ -658,14 +647,7 @@ def main():
     run_pipeline()
     run_gui()
     
-    time.sleep(1)
     
-    window = gui_application.get_windows()[0]
-    window.set_state_label(g_add_source_stage)
-    window.set_callback("zoom", set_zoom_level)
-    window.set_callback("add_source", cb_add_source)
-    window.set_callback("remove_source", cb_remove_source)
-
 
     # pipeline_thread.join()
     # gui_thread.join()
