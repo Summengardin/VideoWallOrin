@@ -30,6 +30,47 @@ class GUIWindow(Gtk.Window):
         self.state_label = Gtk.Label(label="State: Idle")
         vbox_btn.append(self.state_label)
 
+
+        # Source layout
+        # Create a grid
+        grid = Gtk.Grid()
+        grid.set_size_request(200, 200)
+        grid.set_column_homogeneous(True)
+        grid.set_row_homogeneous(True)
+
+        # Create labels for each toggle button
+        self.label1 = Gtk.Label(label="Button 1: Off")
+        self.label2 = Gtk.Label(label="Button 2: Off")
+        self.label3 = Gtk.Label(label="Button 3: Off")
+        self.label4 = Gtk.Label(label="Button 4: Off")
+
+        # Create toggle buttons
+        self.button1 = Gtk.ToggleButton(label="Button 1")
+        self.button2 = Gtk.ToggleButton(label="Button 2")
+        self.button3 = Gtk.ToggleButton(label="Button 3")
+        self.button4 = Gtk.ToggleButton(label="Button 4")
+
+        # Connect toggle buttons to their callbacks
+        self.button1.connect("toggled", self.on_button1_toggled)
+        self.button2.connect("toggled", self.on_button2_toggled)
+        self.button3.connect("toggled", self.on_button3_toggled)
+        self.button4.connect("toggled", self.on_button4_toggled)
+
+        # Arrange buttons and labels in the grid
+        grid.attach(self.button1, 0, 0, 1, 1)
+        grid.attach(self.button2, 1, 0, 1, 1)
+        grid.attach(self.button3, 0, 1, 1, 1)
+        grid.attach(self.button4, 1, 1, 1, 1)
+
+        grid.attach(self.label1, 0, 2, 1, 1)
+        grid.attach(self.label2, 1, 2, 1, 1)
+        grid.attach(self.label3, 0, 3, 1, 1)
+        grid.attach(self.label4, 1, 3, 1, 1)
+
+        # Add the grid to the window
+        hbox.append(grid)
+
+
         # Zoom Slider
         zoom_box = Gtk.Box(spacing=6, orientation=Gtk.Orientation.VERTICAL)
         zoom_box.set_size_request(100, 400)
@@ -61,7 +102,7 @@ class GUIWindow(Gtk.Window):
         value = self.zoom_slider.get_adjustment().get_value()
         self.cb_zoom_changed(value)
 
-    def set_state(self, state: str):
+    def set_state_label(self, state: str):
         self.state_label.set_label(f"State: {state}")
 
     def set_callback(self, property: str, callback: callable):
@@ -71,6 +112,26 @@ class GUIWindow(Gtk.Window):
             self.cb_add_source_clicked = callback
         elif property == "remove_source":
             self.cb_remove_source_clicked = callback
+        
+    def set_source_labels(self, labels: list):
+        for i, label in enumerate(labels):
+            self.source_btns[i].set_label(label)
+    
+    def on_button1_toggled(self, button):
+        state = "On" if button.get_active() else "Off"
+        self.label1.set_text(f"Button 1: {state}")
+
+    def on_button2_toggled(self, button):
+        state = "On" if button.get_active() else "Off"
+        self.label2.set_text(f"Button 2: {state}")
+
+    def on_button3_toggled(self, button):
+        state = "On" if button.get_active() else "Off"
+        self.label3.set_text(f"Button 3: {state}")
+
+    def on_button4_toggled(self, button):
+        state = "On" if button.get_active() else "Off"
+        self.label4.set_text(f"Button 4: {state}")
 
 class GUIApplication(Gtk.Application):
     def __init__(self, *args, **kwargs):
