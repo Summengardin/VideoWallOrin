@@ -15,7 +15,7 @@ stream = camera.create_stream (None, None)
 
 payload = camera.get_payload ()
 
-for i in range(0,50):
+for i in range(0,1):
     stream.push_buffer (Aravis.Buffer.new_allocate (payload))
 
 def convert(buf):

@@ -1,0 +1,43 @@
+broker: '192.168.181.203'
+port: 1883
+
+# Following are topics. Some topics have an optional qos parameter. Default is 0.
+
+# Cameras are defined in the form 'CamObjects/Camera0/'
+cameras:  
+  - 'CamObjects/Camera0/'
+  - 'CamObjects/Camera1/'
+  - 'CamObjects/Camera2/'
+  - 'CamObjects/Camera3/'
+camera_subtopics: 
+  - 'IP'
+  - 'Type'
+  - 'Width'
+  - 'Height'
+  - 'Format'
+  - 'Framerate'
+  - 'Zoom'
+  - 'Exposure'
+  - 'Gain'
+
+# VisionControllers are defined in the form 'VisionControllers/VisionController0/'
+vision_controllers: 
+  - 'VisionControllers/VisionController0/'
+vision_controller_subtopics:
+  - 'IP'
+  - 'Width'
+  - 'Height'
+  - 'TilerRows'
+  - 'TilerColumns'
+  - 'Shutdown': 1
+  - 'StartPipeline': 1
+  - 'Tile00/Source'
+  - 'Tile00/Enable'
+  - 'Tile01/Source'
+  - 'Tile01/Enable'
+  - 'Tile02/Source'
+  - 'Tile02/Enable'
+  - 'Tile03/Source'
+  - 'Tile03/Enable'
+  - 'Tile04/Source'
+  - 'Tile04/Enable'

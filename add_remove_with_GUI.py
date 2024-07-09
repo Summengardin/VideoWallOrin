@@ -3,36 +3,28 @@ gi.require_version('Gst', '1.0')
 gi.require_version('GLib', '2.0')
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gst, GLib, Gtk
-from lib.GUI.GUI import GUI
-from lib.utils import index_dataclass
-from dataclasses import dataclass 
-from enum import Enum
+
+from libs.GUI.GUI import GUI
+from libs.types import SourceType, Source
+from libs.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin
+from libs.utils import index_dataclass, find_digits_in_string
+from libs.MQTT.mqtt_client import MQTTClient
+
 from functools import partial
 import sys
 import os
 import threading
+import yaml
+import multiprocessing
 
+import logging
+logging.basicConfig(level=logging.DEBUG, format='%(message)s')
+logger = logging.getLogger(__name__)
 
 
 # Initialize GStreamer and GTK
 Gst.init(None)
 Gtk.init()
-
-class SourceType(Enum):
-    DUMMY = 0
-    RTSP = 1
-    BAYER = 2
-
-@dataclass
-class Source:
-    id: int = None
-    name: str = None
-    ip: str = None
-    uri: str = None
-    type: SourceType = SourceType.DUMMY
-    active: bool = False
-    bin: Gst.Bin = None
-    eos: bool = False
 
 
 # Define constants
@@ -46,7 +38,6 @@ PLACEHOLDER_IMAGE = "assets/image_placeholder.png"
 SINK_ELEMENT = "nv3dsink"
 # SINK_ELEMENT = "xvimagesink"
 PGIE_CONFIG_FILE = "DeepStream-Yolo/config_infer_primary_yoloV8.txt"
-
 
 
 # Global variables
@@ -74,6 +65,10 @@ ip_to_serial = {"10.1.3.74": "40344360",
                 "10.1.3.77": "40341020"}
 
 
+def initate_sources():
+    for i in range(MAX_NUM_SOURCES):
+        add_source(source_id=i)
+
 
 def files_to_uri_list(files):
     cwd = os.getcwd()
@@ -94,390 +89,6 @@ def set_zoom_level(value):
     tcambin.set_property("tcam-properties", properties)
 
 
-def create_uridecodebin_source_bin(index: int, uri: str) -> Gst.Bin:
-    global g_sources
-    print("Creating uridecodebin for [%s]" % uri)
-
-    g_sources[index].id = index
-    bin_name = f"src-{index}-bin"
-    print(bin_name)
-
-    bin = Gst.Bin.new(bin_name)
-    if not bin:
-        sys.stderr.write(" Unable to create bin \n")
-
-    uridecodebin = Gst.ElementFactory.make("uridecodebin", f"src-{index}-uri-decode-bin")
-    if not uridecodebin:
-        sys.stderr.write(" Unable to create uri decode bin \n")
-
-    uridecodebin.set_property("uri", uri)
-    uridecodebin.connect("pad-added", cb_newpad, bin)
-    uridecodebin.connect("child-added", decodebin_child_added, bin)
-
-    queue = Gst.ElementFactory.make("queue", f"src-queue")
-    if not queue:
-        sys.stderr.write("Unable to create queue for uri decode bin \n")
-
-    queue.set_property("leaky", 1)  # Dropping old buffers
-    queue.set_property("max-size-buffers", 1)
-    queue.set_property("max-size-bytes", 0)
-    queue.set_property("max-size-time", 0)
-
-    bin.add(uridecodebin)
-    bin.add(queue)
-
-
-    src_pad = queue.get_static_pad("src")
-    bin.add_pad(Gst.GhostPad.new("src", src_pad))
-
-    # g_source_enabled[index] = True
-
-    return bin
-
-
-def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
-    global g_sources
-    print("Creating bin for aravissrc")
-
-    g_sources[index].id = index
-    bin_name = f"src{index}-bin"
-
-    bin = Gst.Bin.new(bin_name)
-    if not bin:
-        sys.stderr.write(" Unable to create bin \n")
-    
-    aravissrc = Gst.ElementFactory.make("aravissrc", f"source-{camera_name}")
-    if not aravissrc:
-        sys.stderr.write(" Unable to create aravissrc")
-
-    capsfilter1 = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter1")
-    if not capsfilter1:
-        sys.stderr.write(" Unable to create capsfilter \n")
-    
-    caps = Gst.Caps.from_string("video/x-bayer,format=rggb,width=1920,height=1080,binning=1x1, skipping=1x1, framerate=54/1")
-    capsfilter1.set_property("caps", caps)
-
-
-    queue = Gst.ElementFactory.make("queue", f"src{index}-queue")
-    if not queue:
-        sys.stderr.write(" Unable to create queue \n")
-
-
-    tcamconvert = Gst.ElementFactory.make("tcamconvert", f"src{index}-tcam-convert")
-    if not tcamconvert:
-        sys.stderr.write(" Unable to create tcamconvert element \n")
-
-    # Create the nvvidconv element to convert to NVMM memory
-    nvvidconv = Gst.ElementFactory.make("nvvideoconvert", f"src{index}-nvvideo-converter")
-    if not nvvidconv:
-        sys.stderr.write(" Unable to create nvvideoconvert element \n")
-
-    # Create the capsfilter element to enforce NVMM memory
-    capsfilter2 = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter2")
-    if not capsfilter2:
-        sys.stderr.write(" Unable to create capsfilter element \n")
-
-    caps = Gst.Caps.from_string("video/x-raw(memory:NVMM),format=(string)NV12,width=1920,height=1080")
-    capsfilter2.set_property("caps", caps)
-
-    queue2 = Gst.ElementFactory.make("queue", f"src{index}-queue-out")
-    if not queue2:
-        sys.stderr.write(f"Failed to create src-queue-{index}")
-
-    queue2.set_property("max-size-time", 0)
-    queue2.set_property("max-size-bytes", 0)
-    queue2.set_property("max-size-buffers", 1)
-    queue2.set_property("leaky", 1)
-
-
-    aravissrc.set_property("exposure-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
-    aravissrc.set_property("exposure", 10000)
-    aravissrc.set_property("gain-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
-    aravissrc.set_property("gain", 10)
-    aravissrc.set_property("num-arv-buffers", 200)
-    if camera_name == "10.1.3.75":
-        aravissrc.set_property("features", "Zoom=0")
-    elif camera_name == "10.1.3.74":
-        aravissrc.set_property("exposure-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
-    aravissrc.set_property("exposure", 20000)
-    aravissrc.set_property("gain-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
-    aravissrc.set_property("gain", 1)
-    if camera_name is not None:
-        aravissrc.set_property("camera-name", camera_name)
-
-    queue.set_property("leaky", 1)  # Dropping old buffers
-    queue.set_property("max-size-buffers", 1)
-    queue.set_property("max-size-bytes", 0)
-    queue.set_property("max-size-time", 0)
-
-    queue2.set_property("leaky", 1)  # Dropping old buffers
-    queue2.set_property("max-size-buffers", 1)
-    queue2.set_property("max-size-bytes", 0)
-    queue2.set_property("max-size-time", 0)
-
-    bin.add(aravissrc)
-    bin.add(capsfilter1)
-    bin.add(queue)
-    bin.add(tcamconvert)
-    bin.add(nvvidconv)
-    bin.add(capsfilter2)
-    bin.add(queue2)
-
-    aravissrc.link(capsfilter1)
-    capsfilter1.link(queue)
-    queue.link(tcamconvert)
-    tcamconvert.link(nvvidconv)
-    nvvidconv.link(capsfilter2)
-    capsfilter2.link(queue2)
-
-    src_pad = queue2.get_static_pad("src")
-    bin.add_pad(Gst.GhostPad.new("src", src_pad))
-
-    return bin
-
-
-def create_tcambin_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
-    global g_sources
-    print("Creating tcambin")
-
-    g_sources[index].id = index
-    bin_name = f"src{index}-bin"
-    print(bin_name)
-
-    bin = Gst.Bin.new(bin_name)
-    if not bin:
-        sys.stderr.write(" Unable to create bin \n")
-    
-    tcambin = Gst.ElementFactory.make("tcambin", f"source-{camera_name}")
-    if not tcambin:
-        sys.stderr.write(" Unable to create tcambin")
-
-    properties = Gst.Structure.new_empty("tcam")
-    properties.set_value("exposure-auto", 0)
-    properties.set_value("exposure", 10000)
-    properties.set_value("gain-auto", 0)
-    properties.set_value("gain", 10)
-    properties.set_value("num-arv-buffers", 200)
-    
-    global ip_to_serial
-    if camera_name is not None and camera_name in ip_to_serial:
-        tcambin.set_property("serial", ip_to_serial[camera_name])
-        if camera_name == "10.1.3.75":
-            properties.set_value("Zoom", 0)
-
-    tcambin.set_property("tcam-properties", properties)
-
-    device_caps_str = "video/x-bayer,format=rggb,width=1920,height=1080,binning=1x1, skipping=1x1, framerate=54/1"
-    tcambin.set_property("device-caps", device_caps_str)
-    tcambin.set_property("tcam-properties", properties)
-
-
-    nvvidconv = Gst.ElementFactory.make("nvvideoconvert", "nvvideo-converter")
-    if not nvvidconv:
-        sys.stderr.write(" Unable to create nvvideoconvert element \n")
-
-    capsfilter2 = Gst.ElementFactory.make("capsfilter", "capsfilter2")
-    if not capsfilter2:
-        sys.stderr.write(" Unable to create capsfilter element \n")
-
-    caps = Gst.Caps.from_string("video/x-raw(memory:NVMM),format=(string)NV12")
-    capsfilter2.set_property("caps", caps)
-
-    queue = Gst.ElementFactory.make("queue", f"src{index}-queue-out")
-    if not queue:
-        sys.stderr.write(f"Failed to create src-queue-{index}")
-
-    queue.set_property("max-size-time", 0)
-    queue.set_property("max-size-bytes", 0)
-    queue.set_property("max-size-buffers", 1)
-    queue.set_property("leaky", 1)
-    
-    bin.add(tcambin)
-    bin.add(nvvidconv)
-    bin.add(capsfilter2)
-    bin.add(queue)
-
-    tcambin.link(nvvidconv)
-    nvvidconv.link(capsfilter2)
-    capsfilter2.link(queue)
-
-    src_pad = queue.get_static_pad("src")
-    bin.add_pad(Gst.GhostPad.new("src", src_pad))
-
-    return bin
-
-
-def create_placeholder_source_bin(index: int) -> Gst.Bin:
-    global g_sources
-    global PLACEHOLDER_IMAGE
-    print("Creating placeholder bin ")
-
-    g_sources[index].id = index
-    bin_name = f"src{index}-bin"
-    print(bin_name)
-
-    bin = Gst.Bin.new(bin_name)
-    if not bin:
-        sys.stderr.write(" Unable to create bin \n")
-
-    # Create the source element for reading from the URI
-    src_element = Gst.ElementFactory.make("filesrc", f"src{index}-file-source")
-    if not src_element:
-        sys.stderr.write(" Unable to create file source \n")
-
-    src_element.set_property("location", f"./{PLACEHOLDER_IMAGE}")
-
-    # Create the PNG decoder
-    png_decoder = Gst.ElementFactory.make("pngdec", f"src{index}-png-decoder")
-    if not png_decoder:
-        sys.stderr.write(" Unable to create png decoder \n")
-
-    videoconvert = Gst.ElementFactory.make("videoconvert", f"src{index}-video-convert")
-    if not videoconvert:
-        sys.stderr.write(" Unable to create videoconvert \n")
-
-    capsfilter1 = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter1")
-    if not capsfilter1:
-        sys.stderr.write(" Unable to create capsfilter element \n")
-
-    caps = Gst.Caps.from_string("video/x-raw,format=BGRx")
-    capsfilter1.set_property("caps", caps)
-
-    # Create the imagefreeze element
-    imagefreeze = Gst.ElementFactory.make("imagefreeze", f"src{index}-image-freeze")
-    if not imagefreeze:
-        sys.stderr.write(" Unable to create imagefreeze element \n")
-
-
-    capsfilter3 = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter3")
-    if not capsfilter3:
-        sys.stderr.write(" Unable to create capsfilter element \n")
-
-    caps = Gst.Caps.from_string("video/x-raw,framerate=54/1")
-    capsfilter3.set_property("caps", caps)
-
-    # Create the nvvidconv element to convert to NVMM memory
-    nvvidconv = Gst.ElementFactory.make("nvvideoconvert", f"src{index}-nvvideo-converter")
-    if not nvvidconv:
-        sys.stderr.write(" Unable to create nvvideoconvert element \n")
-
-    # Create the capsfilter element to enforce NVMM memory
-    capsfilter2 = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter2")
-    if not capsfilter2:
-        sys.stderr.write(" Unable to create capsfilter element \n")
-
-    caps = Gst.Caps.from_string("video/x-raw(memory:NVMM),format=(string)NV12,width=1920,height=1080")
-    capsfilter2.set_property("caps", caps)
-
-
-    # Create the queue element
-    queue = Gst.ElementFactory.make("queue", f"src{index}-queue-out")
-    if not queue:
-        sys.stderr.write("Unable to create queue for placeholder bin \n")
-
-
-    queue.set_property("leaky", 1)  # Dropping old buffers
-    queue.set_property("max-size-buffers", 1)
-    queue.set_property("max-size-bytes", 0)
-    queue.set_property("max-size-time", 0)
-
-    # Add elements to the bin
-    bin.add(src_element)
-    bin.add(png_decoder)
-    bin.add(videoconvert)
-    bin.add(capsfilter1)
-    bin.add(imagefreeze)
-    bin.add(capsfilter3)
-    bin.add(nvvidconv)
-    bin.add(capsfilter2)
-    bin.add(queue)
-
-    # Link the elements
-    src_element.link(png_decoder)
-    png_decoder.link(videoconvert)
-    videoconvert.link(capsfilter1)
-    capsfilter1.link(imagefreeze)
-    imagefreeze.link(capsfilter3)
-    capsfilter3.link(nvvidconv)
-    nvvidconv.link(capsfilter2)
-    capsfilter2.link(queue)
-
-    # Add the ghost pad
-    src_pad = queue.get_static_pad("src")
-    bin.add_pad(Gst.GhostPad.new("src", src_pad))
-
-    # g_source_enabled[index] = True
-
-    return bin
-
-
-def create_videotestsrc_source_bin(index: int) -> Gst.Bin:
-    global g_sources
-    print("Creating videotestsrc bin ")
-
-    g_sources[index].id = index
-    bin_name = f"src{index}-bin"
-    print(bin_name)
-
-    bin = Gst.Bin.new(bin_name)
-    if not bin:
-        sys.stderr.write(" Unable to create bin \n")
-    
-    videotestsrc = Gst.ElementFactory.make("videotestsrc", f"src{index}-source")
-    if not videotestsrc:
-        sys.stderr.write(" Unable to create videotestsrc \n")
-
-    capsfilter1 = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter1")
-    if not capsfilter1:
-        sys.stderr.write(" Unable to create capsfilter element \n")
-
-    caps = Gst.Caps.from_string("video/x-raw,format=(string)BGRx,width=1920,height=1080,framerate=54/1")
-    capsfilter1.set_property("caps", caps)
-
-
-    nvvidconv = Gst.ElementFactory.make("nvvideoconvert", f"src{index}-nvvideoconverter")
-    if not nvvidconv:
-        sys.stderr.write(" Unable to create nvvideoconvert element \n")
-
-    capsfilter2 = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter2")
-    if not capsfilter2:
-        sys.stderr.write(" Unable to create capsfilter element \n")
-
-    caps = Gst.Caps.from_string("video/x-raw(memory:NVMM),format=(string)NV12,width=1920,height=1080")
-    capsfilter2.set_property("caps", caps)
-
-    queue = Gst.ElementFactory.make("queue", f"src{index}-queue-out")
-    if not queue:
-        sys.stderr.write(f"Failed to create src-queue-{index}")
-
-    queue.set_property("max-size-time", 0)
-    queue.set_property("max-size-bytes", 0)
-    queue.set_property("max-size-buffers", 1)
-    queue.set_property("leaky", 1)
-
-    nvvidconv.set_property("nvbuf-memory-type", 0)
-    nvvidconv.set_property("gpu-id", 0)
-
-    
-    bin.add(videotestsrc)
-    bin.add(capsfilter1)
-    bin.add(nvvidconv)
-    bin.add(capsfilter2)
-    bin.add(queue)
-
-
-    videotestsrc.link(capsfilter1)
-    capsfilter1.link(nvvidconv)
-    nvvidconv.link(capsfilter2)
-    capsfilter2.link(queue)
-
-
-    src_pad = queue.get_static_pad("src")
-    bin.add_pad(Gst.GhostPad.new("src", src_pad))
-
-    return bin
-
-
 def add_source(uri: str = None, source_id: int = None, camera_name: str = None) -> bool:
     global g_sources
     global g_num_sources
@@ -486,12 +97,12 @@ def add_source(uri: str = None, source_id: int = None, camera_name: str = None) 
     global MAX_NUM_SOURCES
 
     
-
     # Find available source id
     if source_id is None:
         try:
             source_id = index_dataclass(g_sources, "active", False)
         except Exception as e:
+            logger.warning("No free source id: %s", e)
             print("No free source id: ", e)
             return False
         
@@ -519,24 +130,24 @@ def add_source(uri: str = None, source_id: int = None, camera_name: str = None) 
 
 
     if camera_name is not None:
-        print(f"Adding source {source_id} for camera: {camera_name}")
+        logger.info(f"Adding source {source_id} for camera: {camera_name}")
         # if camera_name == "10.1.3.75":
-        source_bin = create_aravis_source_bin(source_id, camera_name)
+        g_sources, source_bin = create_aravis_source_bin(g_sources, source_id, camera_name)
         # else:
             # source_bin = create_aravis_bin(source_id, camera_name)
         g_sources[source_id].active = True
         g_sources[source_id].name = camera_name
 
     elif uri is not None:
-        print(f"Adding source {source_id} for URI: {uri}")
-        source_bin = create_uridecodebin_source_bin(source_id, uri)
+        logger.info(f"Adding source {source_id} for URI: {uri}")
+        g_sources, source_bin = create_uridecodebin_source_bin(g_sources, source_id, uri)
         g_sources[source_id].active = True
         g_sources[source_id].uri = uri
         g_sources[source_id].name = uri
 
     else:
-        print(f"Adding placeholder at source {source_id}")
-        source_bin = create_placeholder_source_bin(source_id)
+        logger.info(f"Adding placeholder at source {source_id}")
+        g_sources, source_bin = create_placeholder_source_bin(g_sources, source_id)
         g_sources[source_id].name = "placeholder"
 
 
@@ -544,7 +155,9 @@ def add_source(uri: str = None, source_id: int = None, camera_name: str = None) 
         sys.stderr.write("Failed to create source bin. Source not added")
         return False
 
+
     g_sources[source_id].bin = source_bin
+
     pipeline.add(source_bin)
     src_pad = source_bin.get_static_pad("src")
     sink_pad = streammux.request_pad_simple(f"sink_{source_id}")
@@ -648,73 +261,81 @@ def bus_call(bus, message, loop):
     return True
 
 
-def initate_sources():
-    for i in range(MAX_NUM_SOURCES):
-        add_source(source_id=i)
 
 
-def main_pipeline():
+
+def main_pipeline(stop_event: multiprocessing.Event):
 
     global g_num_sources, g_source_bin_list, example_files, uri_list, g_sources
     global loop, pipeline, streammux, sink, nvvideoconvert, nvosd, tiler, pgie
+    
+    logger.debug(f"Gstreamer initialized: {Gst.is_initialized()} \n")
 
     if len(sys.argv) < 2:
         uri_list = files_to_uri_list(example_files)
     else:
         uri_list = sys.argv[1:]
 
-    print("Creating Pipeline \n")
+    logger.info("Creating Pipeline \n")
 
     pipeline = Gst.Pipeline()
     if not pipeline:
-        sys.stderr.write(" Unable to create Pipeline \n")
+        logger.error("Unable to create Pipeline \n")
 
-    print("Creating streammux \n")
+    logger.info("Creating streammux \n")
     streammux = Gst.ElementFactory.make("nvstreammux", "Stream-muxer")
+    logger.debug("Created streammux \n")
     if not streammux:
-        sys.stderr.write(" Unable to create NvStreamMux \n")
+        logger.error("Unable to create NvStreamMux \n")
+
+    logger.debug("Setting streammux batched-push-timeout \n")
 
     streammux.set_property("batched-push-timeout", 20000)
     streammux.set_property("batch-size", MAX_NUM_SOURCES)
     streammux.set_property("config-file-path", "./mux_config_source1.txt")
     streammux.set_property("sync-inputs", 0)
-
+    
+    logger.debug("Adding streammux \n")
     pipeline.add(streammux)
+    logger.debug("Added streammux \n")
 
+    logger.debug("Creating sources \n")
     initate_sources()
+    logger.debug("Created sources \n")
+
     # add_source(camera_name="10.1.3.75", source_id=1)
     # add_source(source_id=2)
     # add_source(camera_name="10.1.3.74")
 
-    print("Creating queue \n")
+    logger.info("Creating queue \n")
     queue = Gst.ElementFactory.make("queue", "queue")
     if not queue:
-        sys.stderr.write(" Unable to create queue \n")
+        logger.error("Unable to create queue \n")
 
-    print("Creating tiler \n")
+    logger.info("Creating tiler \n")
     tiler = Gst.ElementFactory.make("nvmultistreamtiler", "nvtiler")
     if not tiler:
-        sys.stderr.write(" Unable to create tiler \n")
+        logger.error(" Unable to create tiler \n")
 
-    print("Creating nvosd \n")
+    logger.info("Creating nvosd \n")
     nvosd = Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
     if not nvosd:
-        sys.stderr.write(" Unable to create nvosd \n")
+        logger.error(" Unable to create nvosd \n")
 
-    print("Creating nvvidconv \n")
+    logger.info("Creating nvvidconv \n")
     nvvideoconvert = Gst.ElementFactory.make("nvvideoconvert", "convertor")
     if not nvvideoconvert:
-        sys.stderr.write(" Unable to create nvvidconv \n")
+        logger.error(" Unable to create nvvidconv \n")
 
-    print(f"Creating {SINK_ELEMENT} \n")
+    logger.info(f"Creating {SINK_ELEMENT} \n")
     sink = Gst.ElementFactory.make(SINK_ELEMENT, "sink")
     if not sink:
-        sys.stderr.write(" Unable to create sink \n")
+        logger.error(" Unable to create sink \n")
 
-    print("Creating fpsdisplaysink \n")
+    logger.info("Creating fpsdisplaysink \n")
     fps_sink = Gst.ElementFactory.make("fpsdisplaysink", "fps-sink")
     if not fps_sink:
-        sys.stderr.write(" Unable to create fps_sink \n")
+        logger.error(" Unable to create fps_sink \n")
 
     queue.set_property("leaky", 1)
     queue.set_property("max-size-buffers", 1)
@@ -731,14 +352,14 @@ def main_pipeline():
     fps_sink.set_property("text-overlay", False)
 
 
-    print("Adding elements to Pipeline \n")
+    logger.info("Adding elements to Pipeline \n")
     pipeline.add(queue)
     pipeline.add(tiler)
     pipeline.add(nvosd)
     # pipeline.add(nvvideoconvert)
     pipeline.add(fps_sink)
 
-    print("Linking elements in the Pipeline \n")
+    logger.info("Linking elements in the Pipeline \n")
     streammux.link(queue)
     queue.link(tiler)
     tiler.link(nvosd)
@@ -773,21 +394,14 @@ def main_pipeline():
     #     print("No source is active")
     #     pass
 
-    try:
-        print("Running...\n")
-        loop.run()
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        print(f"Loop broke. Exception: {e}\n", exc_info=True)
-        pass
+    logger.info("Starting main loop \n")
 
-    print("Exiting app\n")
+    loop.run()
+
+
+    print("Stopping pipeline \n")
     pipeline.set_state(Gst.State.NULL)
 
-
-def run_pipeline():
-    threading.Thread(target=main_pipeline).start()
 
 
 def cb_add_remove_source(source_id, ip, button, state):
@@ -812,9 +426,77 @@ def run_gui():
     gui.run()
 
 
+def run_mqtt(stop_event):
+    def parse_config(config_file):
+        with open(config_file, 'r') as file:
+            config = yaml.safe_load(file)
+            return config
+        
+    mqtt_config = parse_config('libs/MQTT/mqtt_config.yml')
+    broker = mqtt_config['broker']
+    port = mqtt_config['port']
+    root_topic = mqtt_config['camera_topic']
+    subtopics = mqtt_config['subtopics']
+
+    topics = [ (root_topic + subtopic, 1) for subtopic in subtopics ]
+
+    mqtt_client = MQTTClient(broker, port, topics)
+    mqtt_client.set_on_message_callback(mqtt_handler)
+    try:
+        mqtt_client.start()
+    except TimeoutError:
+        print("Connection to MQTT broker timed out.")
+        return
+    
+    stop_event.wait()
+
+    mqtt_client.stop()
+
+
+def mqtt_handler(client, userdata, message):
+
+    topic = message.topic
+    payload = message.payload.decode("utf-8")
+    topic_list = topic.split('/')
+
+    print(f"MQTT: topic = {topic}, payload = {payload}")
+
+    if topic_list[0] == 'CamObjects':
+        try:
+            index = find_digits_in_string(topic_list[1])
+        except ValueError:
+            logging.error("Could identify the index of the camera")
+        
+        if index is not None:
+            if topic_list[2] == 'IP':
+                # add_source(source_id=index, camera_name=payload)
+                pass
+
+    
+
+
 def main():
-    run_pipeline()
+    global loop
+    stop_event = multiprocessing.Event()
+
+
+    pipeline_thread = threading.Thread(target=main_pipeline, args=(stop_event,))
+    mqtt_process = threading.Thread(target=run_mqtt, args=(stop_event,))
+
+    pipeline_thread.start()
+    mqtt_process.start()
+
     run_gui()
+
+    stop_event.set()
+
+
+    loop.quit()
+
+    pipeline_thread.join()
+    mqtt_process.join()
+
+
 
 if __name__ == '__main__':
     main()
