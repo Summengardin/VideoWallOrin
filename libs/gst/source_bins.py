@@ -6,15 +6,14 @@ from gi.repository import Gst
 # sys.path.append('..')
 # sys.path.append('../..')
 
-from .types import Source
+from ..types import Source
 
 PLACEHOLDER_PATH = "/home/seaonics/Dev/VideoWallOrin/assets/image_placeholder.png"
 
 
-def create_uridecodebin_source_bin(g_sources: list[Source], index: int, uri: str) -> Gst.Bin:
+def create_uridecodebin_source_bin(index: int, uri: str) -> Gst.Bin:
     print("Creating uridecodebin for [%s]" % uri)
 
-    g_sources[index].id = index
     bin_name = f"src-{index}-bin"
     print(bin_name)
 
@@ -49,7 +48,7 @@ def create_uridecodebin_source_bin(g_sources: list[Source], index: int, uri: str
 
     # g_source_enabled[index] = True
 
-    return g_sources, bin
+    return bin
 
 
 def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
@@ -100,11 +99,6 @@ def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
         sys.stderr.write(f"Failed to create src-queue-{index}")
 
 
-    queue2.set_property("max-size-time", 0)
-    queue2.set_property("max-size-bytes", 0)
-    queue2.set_property("max-size-buffers", 1)
-    queue2.set_property("leaky", 1)
-
 
     aravissrc.set_property("exposure-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
     aravissrc.set_property("exposure", 10000)
@@ -120,6 +114,7 @@ def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
     aravissrc.set_property("gain", 1)
     if camera_name is not None:
         aravissrc.set_property("camera-name", camera_name)
+
 
     queue.set_property("leaky", 1)  # Dropping old buffers
     queue.set_property("max-size-buffers", 1)
@@ -154,10 +149,9 @@ def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
     return bin
 
 
-def create_tcambin_source_bin(g_sources: list[Source], index: int, camera_name: str = None) -> Gst.Bin:
+def create_tcambin_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
     print("Creating tcambin")
 
-    g_sources[index].id = index
     bin_name = f"src{index}-bin"
     print(bin_name)
 
@@ -221,14 +215,13 @@ def create_tcambin_source_bin(g_sources: list[Source], index: int, camera_name: 
     src_pad = queue.get_static_pad("src")
     bin.add_pad(Gst.GhostPad.new("src", src_pad))
 
-    return g_sources, bin
+    return bin
 
 
-def create_placeholder_source_bin(g_sources: list[Source], index: int) -> Gst.Bin:
+def create_placeholder_source_bin(index: int) -> Gst.Bin:
     global PLACEHOLDER_PATH
     print("Creating placeholder bin ")
 
-    g_sources[index].id = index
     bin_name = f"src{index}-bin"
     print(bin_name)
 
@@ -324,13 +317,12 @@ def create_placeholder_source_bin(g_sources: list[Source], index: int) -> Gst.Bi
 
     # g_source_enabled[index] = True
 
-    return g_sources, bin
+    return bin
 
 
-def create_videotestsrc_source_bin(g_sources: list[Source], index: int) -> Gst.Bin:
+def create_videotestsrc_source_bin(index: int) -> Gst.Bin:
     print("Creating videotestsrc bin ")
 
-    g_sources[index].id = index
     bin_name = f"src{index}-bin"
     print(bin_name)
 
@@ -390,4 +382,4 @@ def create_videotestsrc_source_bin(g_sources: list[Source], index: int) -> Gst.B
     src_pad = queue.get_static_pad("src")
     bin.add_pad(Gst.GhostPad.new("src", src_pad))
 
-    return g_sources, bin
+    return bin

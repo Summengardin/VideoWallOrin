@@ -4,11 +4,11 @@ gi.require_version('GLib', '2.0')
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gst, GLib, Gtk
 
-from libs.GUI.GUI import GUI
+from libs.gui.GUI import GUI
 from libs.types import SourceType, Source
-from libs.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin
+from libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin
 from libs.utils import index_dataclass, find_digits_in_string
-from libs.MQTT.mqtt_client import MQTTClient
+from libs.mqtt.mqtt_client import MQTTClient
 
 from functools import partial
 import sys

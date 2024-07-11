@@ -35,6 +35,7 @@ class MQTTClient:
     def on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         if reason_code != 0:
             logger.error("Unexpected disconnection. Trying to reconnect...")
+            self.client.reconnect()
         else:
             logger.info("Disconnected from MQTT Broker.")
 

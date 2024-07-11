@@ -12,9 +12,10 @@ from gi.repository import Gst, GLib
 
 sys.path.append('..')
 from libs.types import SourceType, Source, Camera, PipelineConfig
-from libs.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin
+from libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin
 from libs.utils import index_dataclass, find_digits_in_string, parse_config
-from libs.MQTT.mqtt_client import MQTTClient
+from libs.mqtt.mqtt_client import MQTTClient
+from config.config import Config
 
 from functools import partial
 from dataclasses import dataclass
@@ -26,9 +27,11 @@ logger = logging.getLogger(__name__)
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--config', '-c', type=str, default='libs/MQTT/mqtt_config.yml')
+parser.add_argument('--config', '-c', type=str, default='/home/seaonics/Dev/VideoWallOrin/config/config.yml')
 
 Gst.init(None)
+
+STOP_MQTT = (None, None)
 
 
 # Constants (That can be modified with GUI)    
@@ -47,7 +50,7 @@ THIS_CONTROLLER_ID = 0
 # Global variables
 g_num_sources = 0
 g_sources = [Source(id=i, name=f"Source {i}") for i in range(MAX_NUM_SOURCES)]
-g_cameras = [Camera() for i in range(MAX_NUM_SOURCES)]
+g_cameras = [Camera() for i in range(10)]
 pipeline = None
 streammux = None
 sink = None
@@ -58,6 +61,9 @@ pgie = None
 loop = None
 zoom_level = 0
 enable_pipeline = False
+pipeline_pause_because_last_source = False
+
+g_cameras[9] = Camera(ip='test')
 
 # ======================
 # MQTT Related Functions
@@ -66,7 +72,14 @@ enable_pipeline = False
 def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event):
     while not stop_event.is_set():
         try:
-            topic, payload = queue.get()
+            q = queue.get(timeout=1)
+            if q is None:
+                logger.debug("Mqtt shutdown queue signaled")
+                stop_event.set()
+                break 
+
+            topic, payload = q
+                  
         except ValueError:
             logger.error("ValueError. Probably closed.")
             continue
@@ -74,6 +87,10 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
             continue
 
         logger.debug(f"Dequeued message on topic: {topic}: {payload}")  
+
+         
+
+
         topic_split = topic.split('/')
         root_topic = topic_split[0]
 
@@ -173,9 +190,9 @@ def mqtt_on_message_callback(client, userdata, message):
     logger.debug(f"Queued message on topic {message.topic}: {payload}")
         
     
-def run_mqtt(stop_event: multiprocessing.Event, queue: multiprocessing.Queue, config_file: str):
+def run_mqtt(stop_event: multiprocessing.Event, queue: multiprocessing.Queue, config):
 
-    mqtt_config = parse_config(config_file)
+    mqtt_config = config
     broker = mqtt_config['broker']
     port = mqtt_config['port']
     cameras = mqtt_config['cameras']
@@ -254,9 +271,6 @@ def add_source(source_id: int = None, camera: Camera = None):
     logger.debug(f"Add Source: source_id = {source_id}, camera = {camera}")
     global g_sources, g_num_sources, pipeline, streammux, MAX_NUM_SOURCES
 
-    print("Active sources: ")
-    for i in range(len(g_sources)):
-        print(f"Source {i}: {g_sources[i].active}")
 
     if source_id is None:
         try:
@@ -292,8 +306,13 @@ def add_source(source_id: int = None, camera: Camera = None):
 
     if camera is not None:
         logger.info(f"Adding camera {camera.ip} at source {source_id}")
-        
-        if camera.type == "Basler" or camera.type == "TheImagingSource":
+
+        if camera.ip == 'test':
+            logger.debug(f"Adding test source at source {source_id}")
+            source_bin = create_videotestsrc_source_bin(source_id)
+            g_sources[source_id].name = "TestSource" + str(source_id)
+            
+        elif camera.type == "Basler" or camera.type == "TheImagingSource":
             logger.debug(f"Adding {camera.type} camera {camera.ip} at source {source_id}")
             source_bin = create_aravis_source_bin(source_id, camera.ip)
             
@@ -304,19 +323,19 @@ def add_source(source_id: int = None, camera: Camera = None):
             logger.debug(f"Adding {camera.type} camera {camera.ip} at source {source_id}")
             if camera.uri is None:
                 camera.uri = "rtsp://" + camera.ip + "/stream"
-            g_sources, source_bin = create_uridecodebin_source_bin(g_sources, source_id, camera.uri)
+            source_bin = create_uridecodebin_source_bin(source_id, camera.uri)
             g_sources[source_id].active = True
             g_sources[source_id].uri = camera.uri
             g_sources[source_id].name = camera.ip
 
         else:
             logger.debug(f"Adding placeholder at source {source_id}")
-            g_sources, source_bin = create_placeholder_source_bin(g_sources, source_id)
+            source_bin = create_placeholder_source_bin(source_id)
             g_sources[source_id].name = "Placeholder" + str(source_id)
 
     else:
         logger.debug(f"Adding placeholder at source {source_id}")
-        g_sources, source_bin = create_placeholder_source_bin(g_sources, source_id)
+        source_bin = create_placeholder_source_bin(source_id)
         g_sources[source_id].name = "Placeholder" + str(source_id)
 
 
@@ -340,7 +359,11 @@ def add_source(source_id: int = None, camera: Camera = None):
 
     if src_pad.link(sink_pad) != Gst.PadLinkReturn.OK:
         sys.stderr.write("Unable to link source bin to streammux\n")
-        return False
+        return False  
+    
+    global pipeline_pause_because_last_source
+    if pipeline_pause_because_last_source:
+        pipeline.set_state(Gst.State.PLAYING)
     
     
     if pipeline.get_state(Gst.CLOCK_TIME_NONE).state == Gst.State.PLAYING:
@@ -366,18 +389,30 @@ def stop_release_source(source_id: int):
     if g_sources[source_id].bin is None:
         return
 
+    print_controller_port(g_sources[source_id].ip)
+
+    if g_num_sources == 1:
+        logger.debug(f"Last source {source_id}. Pausing pipeline")
+        global pipeline_pause_because_last_source
+        pipeline_pause_because_last_source = True
+        pipeline.set_state(Gst.State.PAUSED)
+
     state_return = g_sources[source_id].bin.set_state(Gst.State.NULL)
+
+    
+
+
 
     if state_return == Gst.StateChangeReturn.SUCCESS:
         pad_name = "sink_%u" % source_id
         sinkpad = streammux.get_static_pad(pad_name)
         if sinkpad is not None:
-            sinkpad.send_event(Gst.Event.new_flush_start())
-            sinkpad.send_event(Gst.Event.new_flush_stop(False))
+            sinkpad.send_event(Gst.Event.new_eos())
             
             streammux.release_request_pad(sinkpad)
 
-        pipeline.remove(g_sources[source_id].bin)
+        ret = pipeline.remove(g_sources[source_id].bin)
+        logger.debug(f"Removed source {source_id} from pipeline") if ret else logger.debug(f"Failed to remove source {source_id} from pipeline")
         g_num_sources -= 1
         g_sources[source_id].active = False
         g_sources[source_id].bin = None 
@@ -389,8 +424,7 @@ def stop_release_source(source_id: int):
 
         sinkpad = streammux.get_static_pad("sink_%u" % source_id)
         if sinkpad is not None:
-            sinkpad.send_event(Gst.Event.new_flush_start())
-            sinkpad.send_event(Gst.Event.new_flush_stop(False))
+            sinkpad.send_event(Gst.Event.new_eos())
 
             streammux.release_request_pad(sinkpad)
 
@@ -402,15 +436,27 @@ def stop_release_source(source_id: int):
     else:
         logger.error("Unable to stop and release source %d" % source_id)
 
+    g_sources[source_id] = Source()
 
-def main_pipeline():
+
+def print_controller_port(ip):
+    global g_sources
+    global pipeline
+    
+    aravissrc = pipeline.get_by_name(f"source-{ip}")
+    camera = aravissrc.get_property("camera")
+    device = camera.device
+    print(type(device))
+
+
+def main_pipeline(stop_event: multiprocessing.Event):
     global g_num_sources, g_sources, pipeline_config
     global loop, pipeline, streammux, sink, nvvideoconvert, nvosd
     
-    while True:
-        # print(pipeline_config)
-        if pipeline_config.ready() and pipeline_config.enable_pipeline:
-            break
+    while not pipeline_config.ready():
+        if stop_event.is_set():
+            return
+        
         time.sleep(1)
 
     logger.debug(f"Gstreamer initialized: {Gst.is_initialized()} \n")
@@ -437,7 +483,7 @@ def main_pipeline():
     logger.debug("Added streammux \n")
 
     # add_source(camera_name="10.1.3.75", source_id=1)
-    add_source(source_id=2)
+    # add_source(source_id=2)
     # add_source(camera_name="10.1.3.74")
 
     logger.info("Creating queue \n")
@@ -505,19 +551,25 @@ def main_pipeline():
     bus.add_signal_watch()
     bus.connect("message", bus_call, loop)
 
-    pipeline.set_state(Gst.State.PAUSED)
+    pipeline.set_state(Gst.State.READY)
 
-    print("Now playing...")
-    for i, source in enumerate(g_sources):
-        print(i, ": ", source.name)
-    
+
+    while not pipeline_config.enable_pipeline:
+        if stop_event.is_set():
+            print("Stopping pipeline \n")
+            pipeline.set_state(Gst.State.NULL)
+            return
+        time.sleep(1)
 
     print("Starting pipeline \n")
     state_ret = pipeline.set_state(Gst.State.PLAYING)
 
+
+
     if state_ret == Gst.StateChangeReturn.FAILURE:
         print("Unable to set the pipeline to the playing state")
-    
+
+    Gst.debug_bin_to_dot_file(pipeline, Gst.DebugGraphDetails.ALL , "pipeline")
 
     logger.info("Starting main loop \n")
 
@@ -559,37 +611,43 @@ def bus_call(bus, message, loop):
 if __name__ == "__main__":
     args = parser.parse_args()
 
-
-    
     stop_event = multiprocessing.Event()
     message_queue = multiprocessing.Queue()
 
     config_file = args.config
+    config = Config(config_file)
 
-    mqtt_process = multiprocessing.Process(target=run_mqtt, args=(stop_event, message_queue, config_file))
+    mqtt_process = multiprocessing.Process(target=run_mqtt, args=(stop_event, message_queue, config.mqtt_config))
     mqtt_process.start()
 
 
     mqtt_handler_thread = threading.Thread(target=(mqtt_handler), args=(message_queue, stop_event))
     mqtt_handler_thread.start()
 
-    pipeline_thread = threading.Thread(target=(main_pipeline))
+    pipeline_thread = threading.Thread(target=(main_pipeline), args=(stop_event,))
     pipeline_thread.start()
 
 
     try:
+        print("\nProgram is running\n")
         stop_event.wait()
     except KeyboardInterrupt:
         stop_event.set()
 
 
-    message_queue.close()
+    message_queue.put(None) # signal the queue to close
+    logger.debug("Message queue closed")
+
     if loop:
         loop.quit()
-    logger.debug("Message queue closed")
-    mqtt_handler_thread.join()
-    mqtt_process.join()
+        logger.debug("GLib main loop quit")
 
-    
-    for cam in g_cameras:
-        print(cam)
+    pipeline_thread.join()
+    logger.debug("Pipeline thread joined")
+
+    mqtt_handler_thread.join()
+    logger.debug("MQTT handler thread joined")
+
+    mqtt_process.join()
+    logger.debug("MQTT process joined")
+
