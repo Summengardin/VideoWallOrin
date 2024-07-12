@@ -35,7 +35,7 @@ class MQTTClient:
     def on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         if reason_code != 0:
             logger.error("Unexpected disconnection. Trying to reconnect...")
-            self.client.reconnect()
+            self.start()
         else:
             logger.info("Disconnected from MQTT Broker.")
 
@@ -46,6 +46,10 @@ class MQTTClient:
                 break
             except OSError:
                 logger.error("Failed to connect to MQTT broker. Retrying in 5 seconds...")
+                time.sleep(5)
+                continue
+            except TimeoutError:
+                logger.error("Connection to MQTT broker timed out. Retrying in 5 seconds...")
                 time.sleep(5)
                 continue
 

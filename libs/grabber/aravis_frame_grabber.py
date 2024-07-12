@@ -14,8 +14,8 @@ import gi
 gi.require_version('Aravis', '0.8')
 from gi.repository import Aravis, GLib
 
-H, W, D = 1080, 1920, 3
-IMAGE_FORMAT = "RGB8"
+H, W, D = 1080, 1920, 1
+IMAGE_FORMAT = "BayerRG8"
 #IMAGE_FORMAT = "YUV422_YUYV_Packed"
 
 CAM_GRABBER_PROCESS_SILENT = False
@@ -117,7 +117,7 @@ class CamGrabberProcess():
         self.is_connected = multiprocessing.Value(ctypes.c_bool, 0)
 
 
-    def run(self):
+    def run_(self):
         print("-- Starting CamGrabberProcess --")
         self.is_running.value = True
         
@@ -151,7 +151,47 @@ class CamGrabberProcess():
         if self.camera:
             self.camera.stop_acquisition()  
         
+    def run(self):
+        self.is_running.value = True
+
+        print("===== Finding camera =====")
+        Aravis.update_device_list()
+
+        self.camera = Aravis.Camera.new(self.ip_address)
+
+        print("===== Configuring camera =====")
+        self.camera.set_pixel_format_from_string(IMAGE_FORMAT)
+        print(f"Using pixel format: {self.camera.get_pixel_format_as_string()}")
+
+        self.camera.set_region(0, 0, self.W, self.H)
+        self.camera.set_frame_rate(50)
+
+        print("===== Starting camera =====")
+
+        stream = self.camera.create_stream(None, None)
+        for _ in range(1):
+            stream.push_buffer(Aravis.Buffer.new(self.camera.get_payload()))
+
+        self.camera.start_acquisition()
         
+
+        while True:
+            if not self.is_running.value:
+                break
+            buffer = stream.pop_buffer()
+            if buffer:
+                if buffer.get_status() == Aravis.BufferStatus.SUCCESS:
+                    data = buffer.get_data()
+
+                    with self.lock:
+                        self.new_frame_available.value = 1
+                        ctypes.memmove(self.frame_arr, data, self.frame_arr._length_)
+                
+                stream.push_buffer(buffer)
+
+        self.camera.stop_acquisition()
+
+
     def __find_cam(self):
         has_cam = False
         
@@ -319,21 +359,27 @@ class CamGrabberProcess():
         
 
 if __name__== "__main__":
-    with CamGrabber() as cam_grabber:
+    with CamGrabber() as grabber:
         #cv2.namedWindow("Window", cv2.WINDOW_NORMAL)
         cv2.namedWindow("Window", cv2.WINDOW_KEEPRATIO | cv2.WINDOW_FULLSCREEN)
         #cv2.setWindowProperty("Window", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
         #time.sleep(3)
-        while cam_grabber.is_active():
-            if cam_grabber.is_connected():
-                frame = cam_grabber.get_frame()
+        while grabber.is_active():
+            frame = grabber.get_frame()
+            
+            
+            # Convert the Bayer image to BGR format using OpenCV
+            if frame is not None:
+                frame = frame.reshape((H, W))
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_BAYER_RG2RGB)
+
                 
-                if frame is not None:
-                    #cv2.cvtColor(frame, cv2.COLOR_RGB2BGR, frame)
-                    cv2.imshow("Window", frame)
-                    
-            if cv2.waitKey(1) == "q": #or cv2.getWindowProperty("Window", cv2.WND_PROP_VISIBLE) < 1:
-                break
+                # Display the image
+                cv2.imshow('Bayer Image', frame_bgr)
+
+                # Exit the loop when 'q' is pressed
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
 
         
         cv2.destroyAllWindows()

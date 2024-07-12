@@ -3,11 +3,12 @@ import multiprocessing
 import threading
 import sys
 
-sys.path.append('..')
+sys.path.append('../..')
 
-from libs.config.config import Config
+
 from libs.mqtt.mqtt_handler import MqttHandler
 from libs.gst.pipeline import GStreamerPipeline
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -15,16 +16,15 @@ def main():
     args = parser.parse_args()
 
     config_file = args.config
-    config = Config(config_file)
 
     stop_event = multiprocessing.Event()
     message_queue = multiprocessing.Queue()
 
-    mqtt_handler = MqttHandler(stop_event, message_queue, config.mqtt_config)
+    mqtt_handler = MqttHandler(stop_event, message_queue, config_file['mqtt'])
     mqtt_process = multiprocessing.Process(target=mqtt_handler.run)
     mqtt_process.start()
 
-    pipeline = GStreamerPipeline(config.pipeline_config)
+    pipeline = GStreamerPipeline(config_file['pipeline'])
     pipeline_thread = threading.Thread(target=pipeline.run)
     pipeline_thread.start()
 
@@ -41,6 +41,7 @@ def main():
     
     pipeline_thread.join()
     mqtt_process.join()
+
 
 if __name__ == "__main__":
     main()

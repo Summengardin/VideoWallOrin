@@ -12,7 +12,7 @@ from gi.repository import Gst, GLib
 
 sys.path.append('..')
 from libs.types import SourceType, Source, Camera, PipelineConfig
-from libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin
+from libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin, create_camgrabber_source_bin
 from libs.utils import index_dataclass, find_digits_in_string, parse_config
 from libs.mqtt.mqtt_client import MQTTClient
 from config.config import Config
@@ -31,7 +31,6 @@ parser.add_argument('--config', '-c', type=str, default='/home/seaonics/Dev/Vide
 
 Gst.init(None)
 
-STOP_MQTT = (None, None)
 
 
 # Constants (That can be modified with GUI)    
@@ -65,9 +64,10 @@ pipeline_pause_because_last_source = False
 
 g_cameras[9] = Camera(ip='test')
 
-# ======================
-# MQTT Related Functions
-# ======================
+
+# ======================================================
+#                   MQTT Related Functions
+# ======================================================
 
 def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event):
     while not stop_event.is_set():
@@ -87,8 +87,6 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
             continue
 
         logger.debug(f"Dequeued message on topic: {topic}: {payload}")  
-
-         
 
 
         topic_split = topic.split('/')
@@ -151,7 +149,7 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
                                 traceback.print_exc()
                         else:
                             try:
-                                stop_release_source(source_id=source_id)
+                                remove_source(source_id=source_id)
                             except Exception as e:
                                 logger.error(f"Could not stop releasing source {source_id}")
                                 traceback.print_exc()
@@ -247,9 +245,11 @@ def run_mqtt(stop_event: multiprocessing.Event, queue: multiprocessing.Queue, co
     logger.debug("MQTT client stopped")
 
 
-# ===========================
-# GStreamer Related Functions
-# ===========================
+
+
+# ======================================================
+#               GStreamer Related Functions
+# ======================================================
 
 
 def update_tiler():
@@ -259,7 +259,7 @@ def update_tiler():
 
     if len(g_sources) > MAX_NUM_SOURCES:
         for i in range(MAX_NUM_SOURCES, len(g_sources)):
-            stop_release_source(source_id=i)
+            remove_source(source_id=i)
 
     for i in range(MAX_NUM_SOURCES):
         if i > len(g_sources):
@@ -270,7 +270,10 @@ def add_source(source_id: int = None, camera: Camera = None):
     
     logger.debug(f"Add Source: source_id = {source_id}, camera = {camera}")
     global g_sources, g_num_sources, pipeline, streammux, MAX_NUM_SOURCES
+    global pipeline_pause_because_last_source
 
+    if pipeline is None or streammux is None:
+        return False
 
     if source_id is None:
         try:
@@ -296,7 +299,7 @@ def add_source(source_id: int = None, camera: Camera = None):
     
     # Remove current source if current is dummy
     if g_sources[source_id].bin is not None and g_sources[source_id].active is False:
-        stop_release_source(source_id)
+        remove_source(source_id)
 
 
     g_sources[source_id].active = False
@@ -315,7 +318,8 @@ def add_source(source_id: int = None, camera: Camera = None):
         elif camera.type == "Basler" or camera.type == "TheImagingSource":
             logger.debug(f"Adding {camera.type} camera {camera.ip} at source {source_id}")
             source_bin = create_aravis_source_bin(source_id, camera.ip)
-            
+            # source_bin = create_aravis_source_device_bin(source_id, camera.ip)
+            # source_bin = create_camgrabber_source_bin(source_id, camera.ip)
             g_sources[source_id].active = True
             g_sources[source_id].name = camera.ip       
     
@@ -361,7 +365,6 @@ def add_source(source_id: int = None, camera: Camera = None):
         sys.stderr.write("Unable to link source bin to streammux\n")
         return False  
     
-    global pipeline_pause_because_last_source
     if pipeline_pause_because_last_source:
         pipeline.set_state(Gst.State.PLAYING)
     
@@ -382,24 +385,22 @@ def add_source(source_id: int = None, camera: Camera = None):
     
 
 
-def stop_release_source(source_id: int):
+def remove_source(source_id: int):
     logger.debug(f"Stopping and releasing source {source_id} \n")
     global g_num_sources, g_sources, streammux, pipeline
+    global pipeline_pause_because_last_source
 
     if g_sources[source_id].bin is None:
         return
 
-    print_controller_port(g_sources[source_id].ip)
+    # print_controller_port(g_sources[source_id].ip)
 
     if g_num_sources == 1:
         logger.debug(f"Last source {source_id}. Pausing pipeline")
-        global pipeline_pause_because_last_source
         pipeline_pause_because_last_source = True
         pipeline.set_state(Gst.State.PAUSED)
 
     state_return = g_sources[source_id].bin.set_state(Gst.State.NULL)
-
-    
 
 
 
@@ -411,6 +412,10 @@ def stop_release_source(source_id: int):
             
             streammux.release_request_pad(sinkpad)
 
+        bin = g_sources[source_id].bin
+        src = bin.get_by_name(f"source-{g_sources[source_id].name}")
+        if src is not None:
+            bin.remove(src)
         ret = pipeline.remove(g_sources[source_id].bin)
         logger.debug(f"Removed source {source_id} from pipeline") if ret else logger.debug(f"Failed to remove source {source_id} from pipeline")
         g_num_sources -= 1
@@ -449,7 +454,7 @@ def print_controller_port(ip):
     print(type(device))
 
 
-def main_pipeline(stop_event: multiprocessing.Event):
+def setup_pipeline(stop_event: multiprocessing.Event):
     global g_num_sources, g_sources, pipeline_config
     global loop, pipeline, streammux, sink, nvvideoconvert, nvosd
     
@@ -602,7 +607,8 @@ def bus_call(bus, message, loop):
             if parsed:
                 print("Got EOS from stream %d" % source_id)
                 g_sources[source_id].eos = True
-                stop_release_source(source_id)
+                # if g_sources[source_id].active:
+                #     stop_release_source(source_id)
 
     return True
 
@@ -624,7 +630,9 @@ if __name__ == "__main__":
     mqtt_handler_thread = threading.Thread(target=(mqtt_handler), args=(message_queue, stop_event))
     mqtt_handler_thread.start()
 
-    pipeline_thread = threading.Thread(target=(main_pipeline), args=(stop_event,))
+    pipe = setup_pipeline
+
+    pipeline_thread = threading.Thread(target=(setup_pipeline), args=(stop_event,))
     pipeline_thread.start()
 
 

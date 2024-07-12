@@ -1,7 +1,11 @@
 import sys
 import gi
 gi.require_version('Gst', '1.0')
+# gi.require_version('Aravis', '0.8')
 from gi.repository import Gst
+
+
+from ..grabber.aravis_frame_grabber import CamGrabber
 
 # sys.path.append('..')
 # sys.path.append('../..')
@@ -51,6 +55,96 @@ def create_uridecodebin_source_bin(index: int, uri: str) -> Gst.Bin:
     return bin
 
 
+def create_camgrabber_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
+    print("Creating bin for camgrabber")
+
+    bin_name = f"src{index}-bin"
+    bin = Gst.Bin.new(bin_name)
+    if not bin:
+        sys.stderr.write("Unable to create bin\n")
+    
+    appsrc = Gst.ElementFactory.make("appsrc", f"source-{camera_name}")
+    if not appsrc:
+        sys.stderr.write("Unable to create appsrc\n")
+
+    capsfilter1 = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter1")
+    if not capsfilter1:
+        sys.stderr.write("Unable to create capsfilter\n")
+    
+    caps = Gst.Caps.from_string("video/x-bayer,format=rggb,width=1920,height=1080,framerate=50/1")
+    capsfilter1.set_property("caps", caps)
+
+    queue = Gst.ElementFactory.make("queue", f"src{index}-queue")
+    if not queue:
+        sys.stderr.write("Unable to create queue\n")
+
+    tcamconvert = Gst.ElementFactory.make("tcamconvert", f"src{index}-tcam-convert")
+    if not tcamconvert:
+        sys.stderr.write("Unable to create videoconvert element\n")
+
+    nvvidconv = Gst.ElementFactory.make("nvvideoconvert", f"src{index}-nvvideo-converter")
+    if not nvvidconv:
+        sys.stderr.write("Unable to create nvvideoconvert element\n")
+
+    capsfilter2 = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter2")
+    if not capsfilter2:
+        sys.stderr.write("Unable to create capsfilter element\n")
+
+    caps = Gst.Caps.from_string("video/x-raw(memory:NVMM),format=(string)NV12,width=1920,height=1080")
+    capsfilter2.set_property("caps", caps)
+
+    queue2 = Gst.ElementFactory.make("queue", f"src{index}-queue-out")
+    if not queue2:
+        sys.stderr.write(f"Failed to create src-queue-{index}\n")
+
+    queue.set_property("leaky", 1)  # Dropping old buffers
+    queue.set_property("max-size-buffers", 1)
+    queue.set_property("max-size-bytes", 0)
+    queue.set_property("max-size-time", 0)
+
+    queue2.set_property("leaky", 1)  # Dropping old buffers
+    queue2.set_property("max-size-buffers", 1)
+    queue2.set_property("max-size-bytes", 0)
+    queue2.set_property("max-size-time", 0)
+
+    bin.add(appsrc)
+    bin.add(capsfilter1)
+    bin.add(queue)
+    bin.add(tcamconvert)
+    bin.add(nvvidconv)
+    bin.add(capsfilter2)
+    bin.add(queue2)
+
+    appsrc.link(capsfilter1)
+    capsfilter1.link(queue)
+    queue.link(tcamconvert)
+    tcamconvert.link(nvvidconv)
+    nvvidconv.link(capsfilter2)
+    capsfilter2.link(queue2)
+
+    src_pad = queue2.get_static_pad("src")
+    bin.add_pad(Gst.GhostPad.new("src", src_pad))
+
+    # Create the CamGrabber object
+    grabber = CamGrabber(camera_name, 1080, 1920, 1)
+
+    print(f"Instance of CamGrabber at: id = {id(grabber)}")
+
+    def new_frame_needed(appsrc, _):
+        frame = grabber.get_frame()
+        if frame is not None:
+            frame = frame.reshape((1080, 1920))
+            data = frame.tobytes()
+            buffer = Gst.Buffer.new_wrapped(data)
+            appsrc.emit('push-buffer', buffer)
+        return True
+
+    appsrc.connect('need-data', new_frame_needed)
+
+    return bin
+
+
+
 def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
     print("Creating bin for aravissrc")
 
@@ -68,6 +162,7 @@ def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
     if not capsfilter1:
         sys.stderr.write(" Unable to create capsfilter \n")
     
+
     caps = Gst.Caps.from_string("video/x-bayer,format=rggb,width=1920,height=1080,binning=1x1, skipping=1x1, framerate=54/1")
     capsfilter1.set_property("caps", caps)
 
@@ -114,7 +209,6 @@ def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
     aravissrc.set_property("gain", 1)
     if camera_name is not None:
         aravissrc.set_property("camera-name", camera_name)
-
 
     queue.set_property("leaky", 1)  # Dropping old buffers
     queue.set_property("max-size-buffers", 1)

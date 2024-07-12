@@ -10,6 +10,8 @@ GEV_PRIMARY_APPLICATION_PORT_REGISTER = 0x0A04
 GEV_PRIMARY_APPLICATION_IP_ADDRESS_REGISTER = 0x0A14
 GEV_HEARTBEAT_TIMEOUT_REGISTER = 0x0938
 GEV_STREAM_CHANNEL_PORT_0 = 0x0D00
+GEV_CONTROL_CHANNEL_PORT_PRIVILEGE_REGISTER = 0x0A00
+GEV_CONTROL_SWITCHOVER_KEY_REGISTER = 0x095C 
 # GEV_STREAM_CHANNEL_PORT_0 = 0x0D1C
 
 def fix_port(port):
@@ -70,6 +72,7 @@ def main():
                 device = camera.get_device()
 
                 print(f"Camera {i}: {Aravis.get_device_address(i)}")
+                # device.write_register(GEV_CONTROL_CHANNEL_PORT_PRIVILEGE_REGISTER, 6)
 
                 try:
                     stream = camera.create_stream(None, None)
@@ -82,14 +85,18 @@ def main():
                 port = device.read_register(GEV_PRIMARY_APPLICATION_PORT_REGISTER)
                 heartbeat = device.read_register(GEV_HEARTBEAT_TIMEOUT_REGISTER)
                 stream_port = device.read_register(GEV_STREAM_CHANNEL_PORT_0)
+                control_access = device.read_register(GEV_CONTROL_CHANNEL_PORT_PRIVILEGE_REGISTER)
+                # switchover_key = device.read_register(GEV_CONTROL_SWITCHOVER_KEY_REGISTER)
 
                 port = fix_port(port)
                 stream_port = fix_port(stream_port)
 
-                print(f"Camera is controlled by: {ipaddress.ip_address(address)}")
-                print(f"Control port: {port}")
-                print(f"Stream port: {stream_port}")
-                print(f"Camera heartbeat timeout: {heartbeat}")
+                print(f"Camera is controlled by:            {ipaddress.ip_address(address)}")
+                print(f"Control port:                       {port}")
+                print(f"Stream port:                        {stream_port}")
+                print(f"Camera heartbeat timeout:           {heartbeat}")
+                print(f"Control access:                     {control_access}")
+                # print(f"Switchover key:                     {switchover_key}")
                 print()
 
 
