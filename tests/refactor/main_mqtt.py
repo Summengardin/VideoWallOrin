@@ -6,8 +6,9 @@ import sys
 sys.path.append('../..')
 
 
-from libs.mqtt.mqtt_handler import MqttHandler
+# from libs.mqtt.mqtt_handler import MqttHandler
 from libs.gst.pipeline import GStreamerPipeline
+from .mqtt_handler import MqttHandler
 
 
 def main():
@@ -20,7 +21,7 @@ def main():
     stop_event = multiprocessing.Event()
     message_queue = multiprocessing.Queue()
 
-    mqtt_handler = MqttHandler(stop_event, message_queue, config_file['mqtt'])
+    mqtt_handler = MqttHandler(message_queue)
     mqtt_process = multiprocessing.Process(target=mqtt_handler.run)
     mqtt_process.start()
 
