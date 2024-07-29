@@ -1,6 +1,6 @@
 mqtt:
   # broker: '192.168.181.203'
-  broker: '192.168.180.14'
+  broker: '192.168.180.26'
   port: 1883
 
   # Following are topics. Some topics have an optional qos parameter. Default is 0.
