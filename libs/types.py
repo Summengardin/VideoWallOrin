@@ -7,9 +7,10 @@ from gi.repository import Gst
 
 
 class SourceType(Enum):
-    DUMMY = 0
-    RTSP = 1
-    BAYER = 2
+    PLACEHOLDER = 0
+    TEST = 1
+    RTSP = 2
+    BAYER = 3
 
 
 @dataclass
@@ -38,7 +39,7 @@ class Source:
     name: str = None
     ip: str = None
     uri: str = None
-    type: SourceType = SourceType.DUMMY
+    type: SourceType = SourceType.PLACEHOLDER
     active: bool = False
     bin: Gst.Bin = None
     eos: bool = False

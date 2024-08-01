@@ -12,7 +12,7 @@ from ..grabber.aravis_frame_grabber import CamGrabber
 
 from ..types import Source
 
-PLACEHOLDER_PATH = "/home/seaonics/Dev/VideoWallOrin/assets/image_placeholder.png"
+PLACEHOLDER_PATH = "/home/seaonics/Dev/VideoWallOrin/data/assets/image_placeholder.png"
 
 
 def create_uridecodebin_source_bin(index: int, uri: str) -> Gst.Bin:
@@ -199,14 +199,14 @@ def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
     aravissrc.set_property("exposure", 10000)
     aravissrc.set_property("gain-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
     aravissrc.set_property("gain", 10)
-    aravissrc.set_property("num-arv-buffers", 200)
+    aravissrc.set_property("num-arv-buffers", 10)
     if camera_name == "10.1.3.75":
         aravissrc.set_property("features", "Zoom=0")
     elif camera_name == "10.1.3.74":
         aravissrc.set_property("exposure-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
-    aravissrc.set_property("exposure", 20000)
+    # aravissrc.set_property("exposure", 20000)
     aravissrc.set_property("gain-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
-    aravissrc.set_property("gain", 1)
+    # aravissrc.set_property("gain", 1)
     if camera_name is not None:
         aravissrc.set_property("camera-name", camera_name)
 

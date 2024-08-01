@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from queue import Empty
 
 import logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(name)s:  %(message)s')
+logging.basicConfig(level=logging.ERROR, format='%(asctime)s [%(levelname)s] %(name)s:  %(message)s')
 logger = logging.getLogger(__name__)
 
 import argparse
@@ -41,7 +41,8 @@ OUTPUT_HEIGHT = 2160
 TILER_ROWS = 2
 TILER_COLS = 2
 MAX_NUM_SOURCES = TILER_ROWS * TILER_COLS
-SINK_ELEMENT = "nv3dsink"
+# SINK_ELEMENT = "nv3dsink"
+SINK_ELEMENT = "nvdrmvideosink"
 
 THIS_CONTROLLER_ID = 0
 
@@ -69,6 +70,28 @@ g_cameras[9] = Camera(ip='test')
 #                   MQTT Related Functions
 # ======================================================
 
+def run_with_timeout(func, args=(), kwargs={}, timeout=5):
+    """Run a function with a timeout in a separate thread."""
+    result = [None]
+    exception = [None]
+
+    def wrapper():
+        try:
+            result[0] = func(*args, **kwargs)
+        except Exception as e:
+            exception[0] = e
+
+    thread = threading.Thread(target=wrapper)
+    thread.start()
+    thread.join(timeout)
+
+    if thread.is_alive():
+        logger.error(f"Function {func.__name__} timed out")
+        return False
+    if exception[0]:
+        raise exception[0]
+    return True
+
 def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event):
     while not stop_event.is_set():
         try:
@@ -87,7 +110,6 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
             continue
 
         logger.debug(f"Dequeued message on topic: {topic}: {payload}")  
-
 
         topic_split = topic.split('/')
         root_topic = topic_split[0]
@@ -143,17 +165,23 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
                                 continue
 
                             try:
-                                add_source(source_id=source_id, camera=g_cameras[camera_id])
+                                success = run_with_timeout(add_source, args=(source_id,), kwargs={'camera': g_cameras[camera_id]})
+                                if not success:
+                                    logger.error(f"Adding source {source_id} timed out")
                             except Exception as e:
                                 logger.error(f"Could not add source {source_id}")
                                 traceback.print_exc()
                         else:
                             try:
-                                remove_source(source_id=source_id)
+                                success = run_with_timeout(remove_source, args=(source_id,))
+                                if not success:
+                                    logger.error(f"Removing source {source_id} timed out")
+                                success = run_with_timeout(add_source, args=(source_id,))
+                                if not success:
+                                    logger.error(f"Adding placeholder source {source_id} timed out")
                             except Exception as e:
                                 logger.error(f"Could not stop releasing source {source_id}")
                                 traceback.print_exc()
-                                
          
         elif root_topic == 'CamObjects':
             g_cameras
@@ -179,6 +207,7 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
             elif command == 'Gain':
                 g_cameras[index].gain = float(payload)
 
+    logger.debug("Mqtt handler finished")
     
 
 def mqtt_on_message_callback(client, userdata, message):
@@ -286,19 +315,17 @@ def add_source(source_id: int = None, camera: Camera = None):
     if source_id >= MAX_NUM_SOURCES:
         raise IndexError("Source id out of range")
 
-    cnt = 0
+    # If source id is taken, find available source id
+    # i = 0
+    # while g_sources[source_id].active:
+    #     if i > MAX_NUM_SOURCES:
+    #         raise IndexError("Source id out of range")
+    #     source_id = (source_id + 1) % MAX_NUM_SOURCES
+    #     i += 1
+    #     
 
-    while g_sources[source_id].active:
-        source_id = (source_id + 1) % MAX_NUM_SOURCES
-        cnt += 1
-        if cnt > MAX_NUM_SOURCES:
-            print("All sources enabled. Unable to add source")
-            return False
-        source_id = (source_id + 1) % MAX_NUM_SOURCES
-
-    
-    # Remove current source if current is dummy
-    if g_sources[source_id].bin is not None and g_sources[source_id].active is False:
+    # Remove current source if current is placeholder
+    if g_sources[source_id].bin is not None:
         remove_source(source_id)
 
 
@@ -314,6 +341,7 @@ def add_source(source_id: int = None, camera: Camera = None):
             logger.debug(f"Adding test source at source {source_id}")
             source_bin = create_videotestsrc_source_bin(source_id)
             g_sources[source_id].name = "TestSource" + str(source_id)
+            g_sources[source_id].type = SourceType.TEST
             
         elif camera.type == "Basler" or camera.type == "TheImagingSource":
             logger.debug(f"Adding {camera.type} camera {camera.ip} at source {source_id}")
@@ -321,7 +349,8 @@ def add_source(source_id: int = None, camera: Camera = None):
             # source_bin = create_aravis_source_device_bin(source_id, camera.ip)
             # source_bin = create_camgrabber_source_bin(source_id, camera.ip)
             g_sources[source_id].active = True
-            g_sources[source_id].name = camera.ip       
+            g_sources[source_id].name = camera.ip
+            g_sources[source_id].type = SourceType.BAYER       
     
         elif camera.type == "Compressed":
             logger.debug(f"Adding {camera.type} camera {camera.ip} at source {source_id}")
@@ -331,16 +360,19 @@ def add_source(source_id: int = None, camera: Camera = None):
             g_sources[source_id].active = True
             g_sources[source_id].uri = camera.uri
             g_sources[source_id].name = camera.ip
+            g_sources[source_id].type = SourceType.RTSP
 
         else:
             logger.debug(f"Adding placeholder at source {source_id}")
             source_bin = create_placeholder_source_bin(source_id)
             g_sources[source_id].name = "Placeholder" + str(source_id)
+            g_sources[source_id].type = SourceType.PLACEHOLDER
 
     else:
         logger.debug(f"Adding placeholder at source {source_id}")
         source_bin = create_placeholder_source_bin(source_id)
         g_sources[source_id].name = "Placeholder" + str(source_id)
+        g_sources[source_id].type = SourceType.PLACEHOLDER
 
 
     if not source_bin:
@@ -365,10 +397,16 @@ def add_source(source_id: int = None, camera: Camera = None):
         sys.stderr.write("Unable to link source bin to streammux\n")
         return False  
     
-    if pipeline_pause_because_last_source:
-        pipeline.set_state(Gst.State.PLAYING)
+    # if pipeline_pause_because_last_source:
+        
+    sync_return = source_bin.sync_state_with_parent()
+    if not sync_return:
+        logger.error("Unable to sync state with parent")
+        source_bin.set_state(Gst.State.NULL)
+        return False
     
-    
+    return True
+
     if pipeline.get_state(Gst.CLOCK_TIME_NONE).state == Gst.State.PLAYING:
         state_return = source_bin.set_state(Gst.State.PLAYING)
         if state_return == Gst.StateChangeReturn.SUCCESS:
@@ -391,36 +429,38 @@ def remove_source(source_id: int):
     global pipeline_pause_because_last_source
 
     if g_sources[source_id].bin is None:
-        return
+        return True
 
     # print_controller_port(g_sources[source_id].ip)
 
-    if g_num_sources == 1:
-        logger.debug(f"Last source {source_id}. Pausing pipeline")
-        pipeline_pause_because_last_source = True
-        pipeline.set_state(Gst.State.PAUSED)
+    # if g_num_sources == 1:
+    #     logger.debug(f"Last source {source_id}. Pausing pipeline")
+    #     pipeline_pause_because_last_source = True
+    #     pipeline.set_state(Gst.State.PAUSED)
 
+    # state_return = pipeline.set_state(Gst.State.NULL)
     state_return = g_sources[source_id].bin.set_state(Gst.State.NULL)
 
+    bin = g_sources[source_id].bin
 
+    print(f"state_return = {state_return}")
 
     if state_return == Gst.StateChangeReturn.SUCCESS:
         pad_name = "sink_%u" % source_id
         sinkpad = streammux.get_static_pad(pad_name)
         if sinkpad is not None:
             sinkpad.send_event(Gst.Event.new_eos())
-            
+        
+            sinkpad.send_event(Gst.Event.new_flush_stop(False))
             streammux.release_request_pad(sinkpad)
 
-        bin = g_sources[source_id].bin
-        src = bin.get_by_name(f"source-{g_sources[source_id].name}")
-        if src is not None:
-            bin.remove(src)
-        ret = pipeline.remove(g_sources[source_id].bin)
+        ret = pipeline.remove(bin)
         logger.debug(f"Removed source {source_id} from pipeline") if ret else logger.debug(f"Failed to remove source {source_id} from pipeline")
         g_num_sources -= 1
         g_sources[source_id].active = False
-        g_sources[source_id].bin = None 
+        g_sources[source_id].bin = None
+
+        # return True
 
 
     elif state_return == Gst.StateChangeReturn.ASYNC:
@@ -430,28 +470,32 @@ def remove_source(source_id: int):
         sinkpad = streammux.get_static_pad("sink_%u" % source_id)
         if sinkpad is not None:
             sinkpad.send_event(Gst.Event.new_eos())
-
+            sinkpad.send_event(Gst.Event.new_flush_stop(False))
             streammux.release_request_pad(sinkpad)
 
         pipeline.remove(g_sources[source_id].bin)
         g_num_sources -= 1
         g_sources[source_id].active = False
-        g_sources[source_id].bin = None 
+        g_sources[source_id].bin = None
 
     else:
         logger.error("Unable to stop and release source %d" % source_id)
 
-    g_sources[source_id] = Source()
+    # g_sources[source_id] = Source()
+
+    Gst.debug_bin_to_dot_file_with_ts(pipeline, Gst.DebugGraphDetails.ALL , "pipeline_remove_source")
 
 
-def print_controller_port(ip):
-    global g_sources
-    global pipeline
-    
-    aravissrc = pipeline.get_by_name(f"source-{ip}")
-    camera = aravissrc.get_property("camera")
-    device = camera.device
-    print(type(device))
+    if g_num_sources > 0:
+        state_return = pipeline.set_state(Gst.State.PLAYING)
+
+        if state_return == Gst.StateChangeReturn.SUCCESS:
+            logger.debug("Source removed, now playing\n")  
+
+        elif state_return == Gst.StateChangeReturn.FAILURE:
+            logger.error("Unable to play after removing source %d" % source_id)
+
+
 
 
 def setup_pipeline(stop_event: multiprocessing.Event):
@@ -480,7 +524,7 @@ def setup_pipeline(stop_event: multiprocessing.Event):
 
     streammux.set_property("batched-push-timeout", 20000)
     streammux.set_property("batch-size", MAX_NUM_SOURCES)
-    streammux.set_property("config-file-path", "./mux_config_source1.txt")
+    streammux.set_property("config-file-path", "../config/mux_config_source1.txt")
     streammux.set_property("sync-inputs", 0)
     
     logger.debug("Adding streammux \n")
@@ -490,6 +534,9 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     # add_source(camera_name="10.1.3.75", source_id=1)
     # add_source(source_id=2)
     # add_source(camera_name="10.1.3.74")
+    for i in range(MAX_NUM_SOURCES):
+        add_source(source_id=i)
+
 
     logger.info("Creating queue \n")
     queue = Gst.ElementFactory.make("queue", "queue")
@@ -516,11 +563,6 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     if not sink:
         logger.error(" Unable to create sink \n")
 
-    logger.info("Creating fpsdisplaysink \n")
-    fps_sink = Gst.ElementFactory.make("fpsdisplaysink", "fps-sink")
-    if not fps_sink:
-        logger.error(" Unable to create fps_sink \n")
-
     queue.set_property("leaky", 1)
     queue.set_property("max-size-buffers", 1)
     queue.set_property("max-size-bytes", 0)
@@ -531,9 +573,11 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     tiler.set_property("width", OUTPUT_WIDTH)
     tiler.set_property("height", OUTPUT_HEIGHT)
 
-    fps_sink.set_property("video-sink", sink)
-    fps_sink.set_property("sync", False)
-    fps_sink.set_property("text-overlay", False)
+    # fps_sink.set_property("video-sink", sink)
+    # fps_sink.set_property("sync", False)
+    # fps_sink.set_property("text-overlay", False)
+    sink.set_property("sync", False)
+    sink.set_property("enable-last-sample", False)
 
 
     logger.info("Adding elements to Pipeline \n")
@@ -541,20 +585,20 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     pipeline.add(tiler)
     pipeline.add(nvosd)
     # pipeline.add(nvvideoconvert)
-    pipeline.add(fps_sink)
+    pipeline.add(sink)
 
     logger.info("Linking elements in the Pipeline \n")
     streammux.link(queue)
     queue.link(tiler)
     tiler.link(nvosd)
     # nvosd.link(nvvideoconvert)
-    nvosd.link(fps_sink)
+    nvosd.link(sink)
 
     loop = GLib.MainLoop()
 
     bus = pipeline.get_bus()
     bus.add_signal_watch()
-    bus.connect("message", bus_call, loop)
+    bus.connect("message", message_handler, loop)
 
     pipeline.set_state(Gst.State.READY)
 
@@ -568,8 +612,6 @@ def setup_pipeline(stop_event: multiprocessing.Event):
 
     print("Starting pipeline \n")
     state_ret = pipeline.set_state(Gst.State.PLAYING)
-
-
 
     if state_ret == Gst.StateChangeReturn.FAILURE:
         print("Unable to set the pipeline to the playing state")
@@ -585,7 +627,7 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     pipeline.set_state(Gst.State.NULL)
 
 
-def bus_call(bus, message, loop):
+def message_handler(bus, message, loop):
     global g_sources
     global pipeline
     t = message.type
@@ -607,8 +649,8 @@ def bus_call(bus, message, loop):
             if parsed:
                 print("Got EOS from stream %d" % source_id)
                 g_sources[source_id].eos = True
-                # if g_sources[source_id].active:
-                #     stop_release_source(source_id)
+                # remove_source(source_id)
+                # add_source(source_id) # Add placeholder source
 
     return True
 
