@@ -10,7 +10,7 @@ from ..grabber.aravis_frame_grabber import CamGrabber
 # sys.path.append('..')
 # sys.path.append('../..')
 
-from ..types import Source
+from ..types import Source, Camera
 
 PLACEHOLDER_PATH = "/home/seaonics/Dev/VideoWallOrin/data/assets/image_placeholder.png"
 
@@ -145,36 +145,51 @@ def create_camgrabber_source_bin(index: int, camera_name: str = None) -> Gst.Bin
 
 
 
-def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
+def create_aravis_source_bin(index: int, camera: Camera = None) -> Gst.Bin:
     print("Creating bin for aravissrc")
 
     bin_name = f"src{index}-bin"
+
+    ip = camera.ip
+    width = camera.width
+    height = camera.height
+    format = camera.format
+    framerate = camera.framerate
+    exposure_time_auto = camera.exposure_time_auto
+    exposure_time = camera.exposure_time
+    gain_auto = camera.gain_auto
+    gain = camera.gain
 
     bin = Gst.Bin.new(bin_name)
     if not bin:
         sys.stderr.write(" Unable to create bin \n")
     
-    aravissrc = Gst.ElementFactory.make("aravissrc", f"source-{camera_name}")
+    aravissrc = Gst.ElementFactory.make("aravissrc", f"source-{ip}")
     if not aravissrc:
         sys.stderr.write(" Unable to create aravissrc")
 
-    capsfilter1 = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter1")
-    if not capsfilter1:
+    capsfilter_src = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter1")
+    if not capsfilter_src:
         sys.stderr.write(" Unable to create capsfilter \n")
     
+    if format == "BayerRG8":
+        caps = Gst.Caps.from_string(f"video/x-bayer,format=rggb,width={width},height={height},binning=1x1, skipping=1x1, framerate={int(framerate)}/1")
+        capsfilter_src.set_property("caps", caps)
 
-    caps = Gst.Caps.from_string("video/x-bayer,format=rggb,width=1920,height=1080,binning=1x1, skipping=1x1, framerate=54/1")
-    capsfilter1.set_property("caps", caps)
+        convertor = Gst.ElementFactory.make("tcamconvert", f"src{index}-tcam-convert")
+        if not convertor:
+            sys.stderr.write(" Unable to create tcamconvert element \n")
+    else:
+        caps = Gst.Caps.from_string(f"video/x-raw,format=(string)RGB8,width={width},height={height},framerate={framerate}/1")
+        capsfilter_src.set_property("caps", caps)
 
+        convertor = Gst.ElementFactory.make("videoconvert", f"src{index}-video-converter")
+        if not convertor:
+            sys.stderr.write(" Unable to create videoconvert element \n")
 
-    queue = Gst.ElementFactory.make("queue", f"src{index}-queue")
-    if not queue:
+    queue_convertor = Gst.ElementFactory.make("queue", f"src{index}-queue")
+    if not queue_convertor:
         sys.stderr.write(" Unable to create queue \n")
-
-
-    tcamconvert = Gst.ElementFactory.make("tcamconvert", f"src{index}-tcam-convert")
-    if not tcamconvert:
-        sys.stderr.write(" Unable to create tcamconvert element \n")
 
     # Create the nvvidconv element to convert to NVMM memory
     nvvidconv = Gst.ElementFactory.make("nvvideoconvert", f"src{index}-nvvideo-converter")
@@ -186,7 +201,7 @@ def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
     if not capsfilter2:
         sys.stderr.write(" Unable to create capsfilter element \n")
 
-    caps = Gst.Caps.from_string("video/x-raw(memory:NVMM),format=(string)NV12,width=1920,height=1080")
+    caps = Gst.Caps.from_string("video/x-raw(memory:NVMM),format=(string)NV12")
     capsfilter2.set_property("caps", caps)
 
     queue2 = Gst.ElementFactory.make("queue", f"src{index}-queue-out")
@@ -195,25 +210,21 @@ def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
 
 
 
-    aravissrc.set_property("exposure-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
-    aravissrc.set_property("exposure", 10000)
-    aravissrc.set_property("gain-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
-    aravissrc.set_property("gain", 10)
+    aravissrc.set_property("exposure-auto", exposure_time_auto) # 0 = Off, 1 = Once, 2 = Continuous
+    aravissrc.set_property("exposure", exposure_time)
+    aravissrc.set_property("gain-auto", gain_auto) # 0 = Off, 1 = Once, 2 = Continuous
+    aravissrc.set_property("gain", gain)
     aravissrc.set_property("num-arv-buffers", 10)
-    if camera_name == "10.1.3.75":
+    if camera.type == "TheImagingSource":
         aravissrc.set_property("features", "Zoom=0")
-    elif camera_name == "10.1.3.74":
-        aravissrc.set_property("exposure-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
-    # aravissrc.set_property("exposure", 20000)
-    aravissrc.set_property("gain-auto", 0) # 0 = Off, 1 = Once, 2 = Continuous
-    # aravissrc.set_property("gain", 1)
-    if camera_name is not None:
-        aravissrc.set_property("camera-name", camera_name)
 
-    queue.set_property("leaky", 1)  # Dropping old buffers
-    queue.set_property("max-size-buffers", 1)
-    queue.set_property("max-size-bytes", 0)
-    queue.set_property("max-size-time", 0)
+    if ip is not None:
+        aravissrc.set_property("camera-name", ip)
+
+    queue_convertor.set_property("leaky", 1)  # Dropping old buffers
+    queue_convertor.set_property("max-size-buffers", 1)
+    queue_convertor.set_property("max-size-bytes", 0)
+    queue_convertor.set_property("max-size-time", 0)
 
     queue2.set_property("leaky", 1)  # Dropping old buffers
     queue2.set_property("max-size-buffers", 1)
@@ -222,18 +233,18 @@ def create_aravis_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
 
 
     bin.add(aravissrc)
-    bin.add(capsfilter1)
-    bin.add(queue)
-    bin.add(tcamconvert)
+    bin.add(capsfilter_src)
+    bin.add(queue_convertor)
+    bin.add(convertor)
     bin.add(nvvidconv)
     bin.add(capsfilter2)
     bin.add(queue2)
 
 
-    aravissrc.link(capsfilter1)
-    capsfilter1.link(queue)
-    queue.link(tcamconvert)
-    tcamconvert.link(nvvidconv)
+    aravissrc.link(capsfilter_src)
+    capsfilter_src.link(queue_convertor)
+    queue_convertor.link(convertor)
+    convertor.link(nvvidconv)
     nvvidconv.link(capsfilter2)
     capsfilter2.link(queue2)
 
@@ -356,7 +367,7 @@ def create_placeholder_source_bin(index: int) -> Gst.Bin:
     if not capsfilter3:
         sys.stderr.write(" Unable to create capsfilter element \n")
 
-    caps = Gst.Caps.from_string("video/x-raw,framerate=54/1")
+    caps = Gst.Caps.from_string("video/x-raw,framerate=200/1")
     capsfilter3.set_property("caps", caps)
 
     # Create the nvvidconv element to convert to NVMM memory

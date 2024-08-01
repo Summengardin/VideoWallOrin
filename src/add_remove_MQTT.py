@@ -203,7 +203,7 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
             elif command == 'Zoom':
                 g_cameras[index].zoom = int(payload)
             elif command == 'Exposure':
-                g_cameras[index].exposure = float(payload)
+                g_cameras[index].exposure_time = float(payload)
             elif command == 'Gain':
                 g_cameras[index].gain = float(payload)
 
@@ -345,7 +345,7 @@ def add_source(source_id: int = None, camera: Camera = None):
             
         elif camera.type == "Basler" or camera.type == "TheImagingSource":
             logger.debug(f"Adding {camera.type} camera {camera.ip} at source {source_id}")
-            source_bin = create_aravis_source_bin(source_id, camera.ip)
+            source_bin = create_aravis_source_bin(source_id, camera)
             # source_bin = create_aravis_source_device_bin(source_id, camera.ip)
             # source_bin = create_camgrabber_source_bin(source_id, camera.ip)
             g_sources[source_id].active = True
@@ -405,6 +405,9 @@ def add_source(source_id: int = None, camera: Camera = None):
         source_bin.set_state(Gst.State.NULL)
         return False
     
+
+    Gst.debug_bin_to_dot_file_with_ts(pipeline, Gst.DebugGraphDetails.ALL , "pipeline")
+
     return True
 
     if pipeline.get_state(Gst.CLOCK_TIME_NONE).state == Gst.State.PLAYING:
@@ -483,7 +486,7 @@ def remove_source(source_id: int):
 
     # g_sources[source_id] = Source()
 
-    Gst.debug_bin_to_dot_file_with_ts(pipeline, Gst.DebugGraphDetails.ALL , "pipeline_remove_source")
+    
 
 
     if g_num_sources > 0:
@@ -522,7 +525,7 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     if not streammux:
         logger.error("Unable to create NvStreamMux \n")
 
-    streammux.set_property("batched-push-timeout", 0)
+    streammux.set_property("batched-push-timeout", 200000)
     streammux.set_property("batch-size", MAX_NUM_SOURCES)
     streammux.set_property("config-file-path", "../config/mux_config_source1.txt")
     streammux.set_property("sync-inputs", 0)

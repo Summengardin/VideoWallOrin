@@ -57,5 +57,7 @@ class Camera:
     format: str = None
     framerate: float = None
     zoom: float = None
-    exposure: float = None
+    exposure_time: float = None
+    exposure_time_auto: int = 2
     gain: float = None
+    gain_auto: int = 2

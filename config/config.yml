@@ -20,7 +20,9 @@ mqtt:
     - 'Framerate'
     - 'Zoom'
     - 'Exposure'
+    - 'ExposureAuto'
     - 'Gain'
+    - 'GainAuto'
 
   # VisionControllers are defined in the form 'VisionControllers/VisionController0/'
   vision_controllers: 
@@ -43,6 +45,7 @@ mqtt:
     - 'Tile03/Enable'
     - 'Tile04/Source'
     - 'Tile04/Enable'
+
 
 pipeline:
   tiler_rows: 2
