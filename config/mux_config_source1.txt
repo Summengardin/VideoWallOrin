@@ -4,14 +4,17 @@ algorithm-type=1
 
 batch-size= 4
 
-max-fps-control=0
+max-fps-control=1
 
-overall-max-fps-n=108
+overall-max-fps-n=60
 
 overall-max-fps-d=1
 
-overall-min-fps-n=108
+overall-min-fps-n=60
 
 overall-min-fps-d=1
 
-max-same-source-frames=1
+max-same-source-frames=2
+
+
+

@@ -64,7 +64,7 @@ enable_pipeline = False
 pipeline_pause_because_last_source = False
 
 g_cameras[9] = Camera(ip='test')
-
+g_last_num_rendered_frames = 0
 
 # ======================================================
 #                   MQTT Related Functions
@@ -522,7 +522,7 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     if not streammux:
         logger.error("Unable to create NvStreamMux \n")
 
-    streammux.set_property("batched-push-timeout", 20000)
+    streammux.set_property("batched-push-timeout", 0)
     streammux.set_property("batch-size", MAX_NUM_SOURCES)
     streammux.set_property("config-file-path", "../config/mux_config_source1.txt")
     streammux.set_property("sync-inputs", 0)
@@ -578,6 +578,7 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     # fps_sink.set_property("text-overlay", False)
     sink.set_property("sync", False)
     sink.set_property("enable-last-sample", False)
+    sink.set_property("async", False)
 
 
     logger.info("Adding elements to Pipeline \n")
@@ -603,13 +604,6 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     pipeline.set_state(Gst.State.READY)
 
 
-    while not pipeline_config.enable_pipeline:
-        if stop_event.is_set():
-            print("Stopping pipeline \n")
-            pipeline.set_state(Gst.State.NULL)
-            return
-        time.sleep(1)
-
     print("Starting pipeline \n")
     state_ret = pipeline.set_state(Gst.State.PLAYING)
 
@@ -618,6 +612,8 @@ def setup_pipeline(stop_event: multiprocessing.Event):
 
     Gst.debug_bin_to_dot_file(pipeline, Gst.DebugGraphDetails.ALL , "pipeline")
 
+    GLib.timeout_add(1000, check_sink_stats)
+
     logger.info("Starting main loop \n")
 
     loop.run()
@@ -625,6 +621,30 @@ def setup_pipeline(stop_event: multiprocessing.Event):
 
     print("Stopping pipeline \n")
     pipeline.set_state(Gst.State.NULL)
+
+
+def check_sink_stats():
+    global sink, g_last_num_rendered_frames
+
+    if not sink:
+        return True
+    
+    stats = sink.get_property("stats")
+    if not stats:
+        return True
+
+    avg_rate = stats.get_value("average-rate")
+    dropped = stats.get_value("dropped")
+    rendered = stats.get_value("rendered")
+
+    delta = rendered - g_last_num_rendered_frames
+    g_last_num_rendered_frames = rendered
+
+    print(f"Average rate:    {avg_rate}        Dropped frames:    {dropped}        Rendered frames: {rendered}        FPS: {delta}")
+
+
+    return True
+
 
 
 def message_handler(bus, message, loop):
