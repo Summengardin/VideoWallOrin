@@ -46,7 +46,9 @@ def launch_camera(cam, dbg):
             f"! video/x-bayer,width={width},height={height},framerate={framerate},format={fmt}",
             "! tcamconvert",
             "! videoconvert",
-            "! xvimagesink sync=false"
+            "! nvvideoconvert ! 'video/x-raw(memory:NVMM),format=NV12'",
+            "! nv3dsink sync=false"
+            #"! xvimagesink sync=false"
         ]
 
         # Execute the command
