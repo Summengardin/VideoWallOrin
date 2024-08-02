@@ -11,6 +11,7 @@ from ..grabber.aravis_frame_grabber import CamGrabber
 # sys.path.append('../..')
 
 from ..types import Source, Camera
+from ..utils import float_to_fraction
 
 PLACEHOLDER_PATH = "/home/seaonics/Dev/VideoWallOrin/data/assets/image_placeholder.png"
 
@@ -155,6 +156,7 @@ def create_aravis_source_bin(index: int, camera: Camera = None) -> Gst.Bin:
     height = camera.height
     format = camera.format
     framerate = camera.framerate
+    num, denom = float_to_fraction(framerate)
     exposure_time_auto = camera.exposure_time_auto
     exposure_time = camera.exposure_time
     gain_auto = camera.gain_auto
@@ -173,7 +175,7 @@ def create_aravis_source_bin(index: int, camera: Camera = None) -> Gst.Bin:
         sys.stderr.write(" Unable to create capsfilter \n")
     
     if format == "BayerRG8":
-        caps = Gst.Caps.from_string(f"video/x-bayer,format=rggb,width={width},height={height},binning=1x1, skipping=1x1, framerate={int(framerate)}/1")
+        caps = Gst.Caps.from_string(f"video/x-bayer,format=rggb,width={width},height={height},binning=1x1, skipping=1x1, framerate={num}/{denom}")
         capsfilter_src.set_property("caps", caps)
 
         convertor = Gst.ElementFactory.make("tcamconvert", f"src{index}-tcam-convert")
@@ -211,9 +213,11 @@ def create_aravis_source_bin(index: int, camera: Camera = None) -> Gst.Bin:
 
 
     aravissrc.set_property("exposure-auto", exposure_time_auto) # 0 = Off, 1 = Once, 2 = Continuous
-    aravissrc.set_property("exposure", exposure_time)
+    if exposure_time_auto == 0:
+        aravissrc.set_property("exposure", exposure_time)
     aravissrc.set_property("gain-auto", gain_auto) # 0 = Off, 1 = Once, 2 = Continuous
-    aravissrc.set_property("gain", gain)
+    if gain_auto == 0:
+        aravissrc.set_property("gain", gain)
     aravissrc.set_property("num-arv-buffers", 10)
     if camera.type == "TheImagingSource":
         aravissrc.set_property("features", "Zoom=0")

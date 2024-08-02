@@ -22,8 +22,9 @@ from dataclasses import dataclass
 from queue import Empty
 
 import logging
-logging.basicConfig(level=logging.ERROR, format='%(asctime)s [%(levelname)s] %(name)s:  %(message)s')
+logging.basicConfig(format='%(asctime)s [%(levelname)s] %(name)s:  %(message)s')
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 import argparse
 parser = argparse.ArgumentParser()
@@ -92,6 +93,34 @@ def run_with_timeout(func, args=(), kwargs={}, timeout=5):
         raise exception[0]
     return True
 
+
+def fullscreen_toggler(source_id: int = None, state: bool = False):
+    global tiler
+    if state:
+        logger.debug(f"Fullscreen on source {source_id}")
+        tiler.set_property("show-source", source_id)
+    else:
+        logger.debug(f"Fullscreen off")
+        tiler.set_property("show-source", -1)
+
+
+def update_camera_values(camera_ip : str = None):
+    global g_sources, g_cameras
+    if camera_ip is None:
+        return
+    
+    try:
+        source_id = index_dataclass(g_sources, 'ip', camera_ip)
+    except ValueError:
+        return
+
+    g_sources[source_id].update_camera_values()
+
+
+
+
+
+
 def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event):
     while not stop_event.is_set():
         try:
@@ -120,6 +149,11 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
             if command == 'Shutdown' and int(payload) > 0:
                 logger.debug("Stop event set")
                 stop_event.set()
+            elif command == 'Fullscreen':
+                if int(payload) > 0:
+                    fullscreen_toggler(source_id=int(payload)-1, state=True)
+                else:
+                    fullscreen_toggler(state=False)
             elif command == 'Width':
                 global OUTPUT_WIDTH
                 OUTPUT_WIDTH = int(payload)
@@ -192,6 +226,10 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
                 g_cameras[index].ip = payload
             elif command == 'Type':
                 g_cameras[index].type = payload
+                if payload == 'TheImagingSource':
+                    g_cameras[index].has_zoom = True
+                else:
+                    g_cameras[index].has_zoom = False
             elif command == 'Width':
                 g_cameras[index].width = int(payload)
             elif command == 'Height':
@@ -204,8 +242,22 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
                 g_cameras[index].zoom = int(payload)
             elif command == 'Exposure':
                 g_cameras[index].exposure_time = float(payload)
+            elif command == 'ExposureAuto':
+                if int(payload) > 0:
+                    g_cameras[index].exposure_time_auto = 2 # Only continous working
+                else:
+                    g_cameras[index].exposure_time_auto = 0
             elif command == 'Gain':
                 g_cameras[index].gain = float(payload)
+            elif command == 'GainAuto':
+                if int(payload) > 0:
+                    g_cameras[index].gain_auto = 2
+                else:
+                    g_cameras[index].gain_auto = 0
+            
+            # Update camera values
+            run_with_timeout(update_camera_values, args=(g_cameras[index].ip,))
+
 
     logger.debug("Mqtt handler finished")
     
@@ -336,6 +388,8 @@ def add_source(source_id: int = None, camera: Camera = None):
 
     if camera is not None:
         logger.info(f"Adding camera {camera.ip} at source {source_id}")
+
+        g_sources[source_id].camera = camera
 
         if camera.ip == 'test':
             logger.debug(f"Adding test source at source {source_id}")
@@ -503,7 +557,7 @@ def remove_source(source_id: int):
 
 def setup_pipeline(stop_event: multiprocessing.Event):
     global g_num_sources, g_sources, pipeline_config
-    global loop, pipeline, streammux, sink, nvvideoconvert, nvosd
+    global loop, pipeline, streammux, sink, nvvideoconvert, nvosd, tiler
     
     while not pipeline_config.ready():
         if stop_event.is_set():
@@ -566,6 +620,22 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     if not sink:
         logger.error(" Unable to create sink \n")
 
+
+    logger.info("Adding elements to Pipeline \n")
+    pipeline.add(queue)
+    pipeline.add(tiler)
+    pipeline.add(nvosd)
+    # pipeline.add(nvvideoconvert)
+    pipeline.add(sink)
+
+    logger.info("Linking elements in the Pipeline \n")
+    streammux.link(queue)
+    queue.link(tiler)
+    tiler.link(nvosd)
+    # nvosd.link(nvvideoconvert)
+    nvosd.link(sink)
+
+
     queue.set_property("leaky", 1)
     queue.set_property("max-size-buffers", 1)
     queue.set_property("max-size-bytes", 0)
@@ -584,19 +654,10 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     sink.set_property("async", False)
 
 
-    logger.info("Adding elements to Pipeline \n")
-    pipeline.add(queue)
-    pipeline.add(tiler)
-    pipeline.add(nvosd)
-    # pipeline.add(nvvideoconvert)
-    pipeline.add(sink)
 
-    logger.info("Linking elements in the Pipeline \n")
-    streammux.link(queue)
-    queue.link(tiler)
-    tiler.link(nvosd)
-    # nvosd.link(nvvideoconvert)
-    nvosd.link(sink)
+
+
+    
 
     loop = GLib.MainLoop()
 

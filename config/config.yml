@@ -33,6 +33,7 @@ mqtt:
     - 'Height'
     - 'TilerRows'
     - 'TilerColumns'
+    - 'Fullscreen'
     - 'Shutdown': 1
     - 'StartPipeline': 1
     - 'Tile00/Source'

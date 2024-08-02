@@ -1,5 +1,6 @@
 import re
 import yaml
+from fractions import Fraction
 
 from typing import Any, List
 
@@ -32,7 +33,7 @@ def index_dataclass(dataclass_list: List[Any], field_name: str, value: Any) -> i
     for index, item in enumerate(dataclass_list):
         if getattr(item, field_name) == value:
             return index
-    raise ValueError(f"{value} not found in {field_name}")
+    raise ValueError(f"No dataclass instance with field '{field_name}' = {value}")
 
 
 def parse_config(config_path: str) -> dict:
@@ -45,3 +46,17 @@ def parse_config(config_path: str) -> dict:
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
         return config
+
+
+
+
+def float_to_fraction(float_number, max_denominator=1000) -> tuple[int, int]:
+    """
+    Convert a float to its best fraction representation.
+
+    :param float_number: The float number to be converted.
+    :param max_denominator: The maximum value for the denominator.
+    :return: A tuple containing the numerator and denominator.
+    """
+    fraction = Fraction(float_number).limit_denominator(max_denominator)
+    return fraction.numerator, fraction.denominator
