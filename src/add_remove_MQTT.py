@@ -64,7 +64,7 @@ zoom_level = 0
 enable_pipeline = False
 pipeline_pause_because_last_source = False
 
-g_cameras[9] = Camera(ip='test')
+g_cameras[-1] = Camera(ip='test')
 g_last_num_rendered_frames = 0
 
 # ======================================================
@@ -112,7 +112,11 @@ def update_camera_values(camera_ip : str = None):
     try:
         source_id = index_dataclass(g_sources, 'ip', camera_ip)
     except ValueError:
+        print(f"Camera {camera_ip} not found")
+        for src in g_sources:
+            print(src)
         return
+    
 
     g_sources[source_id].update_camera_values()
 
@@ -122,6 +126,8 @@ def update_camera_values(camera_ip : str = None):
 
 
 def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event):
+    global g_sources, g_cameras, pipeline_config
+
     while not stop_event.is_set():
         try:
             q = queue.get(timeout=1)
@@ -145,7 +151,6 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
 
         if root_topic == 'VisionControllers':
             command = topic_split[2]
-            global pipeline_config
             if command == 'Shutdown' and int(payload) > 0:
                 logger.debug("Stop event set")
                 stop_event.set()
@@ -180,31 +185,33 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
                     logger.debug(f"Pipeline enabled: {pipeline_config.enable_pipeline}")
                     # print("\n=== MISSING IMPLEMENTATION TO START PIPELINE ===\n")
             elif command.startswith('Tile'):
-                global g_sources
                 index = find_digits_in_string(command)
                 source_id = index - 1
                 subcommand = topic_split[3]
 
                 if index is not None:
                     if subcommand == 'Source':
-                        g_sources[source_id].ip = payload
-                        logger.debug(f"Source {source_id} IP: {payload}")
+                        try:
+                            camera_index = find_digits_in_string(payload)
+                        except ValueError:
+                            camera_index = -1
+                    
+                        g_sources[source_id].camera = g_cameras[camera_index]
 
                     elif subcommand == 'Enable':
                         if int(payload) > 0:
-                            try:
-                                camera_id = index_dataclass(g_cameras, 'ip', g_sources[source_id].ip)
-                            except ValueError:
-                                logger.error(f"Could not find camera with IP {g_sources[source_id].ip}")
-                                continue
 
                             try:
-                                success = run_with_timeout(add_source, args=(source_id,), kwargs={'camera': g_cameras[camera_id]})
+                                success = run_with_timeout(add_source, args=(source_id,), kwargs={'camera': g_sources[source_id].camera})
                                 if not success:
                                     logger.error(f"Adding source {source_id} timed out")
                             except Exception as e:
                                 logger.error(f"Could not add source {source_id}")
                                 traceback.print_exc()
+                                success = run_with_timeout(add_source, args=(source_id,))
+                                if not success:
+                                    logger.error(f"Adding placeholder source {source_id} timed out")
+
                         else:
                             try:
                                 success = run_with_timeout(remove_source, args=(source_id,))
@@ -218,7 +225,6 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
                                 traceback.print_exc()
          
         elif root_topic == 'CamObjects':
-            g_cameras
             index = find_digits_in_string(topic_split[1])
             command = topic_split[2]
 
@@ -388,6 +394,7 @@ def add_source(source_id: int = None, camera: Camera = None):
 
     if camera is not None:
         logger.info(f"Adding camera {camera.ip} at source {source_id}")
+        g_sources[source_id].ip = camera.ip
 
         g_sources[source_id].camera = camera
 
@@ -651,7 +658,7 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     # fps_sink.set_property("text-overlay", False)
     sink.set_property("sync", False)
     sink.set_property("enable-last-sample", False)
-    sink.set_property("async", False)
+    # sink.set_property("async", False)
 
 
 

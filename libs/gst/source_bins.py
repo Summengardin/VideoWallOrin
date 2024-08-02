@@ -218,7 +218,7 @@ def create_aravis_source_bin(index: int, camera: Camera = None) -> Gst.Bin:
     aravissrc.set_property("gain-auto", gain_auto) # 0 = Off, 1 = Once, 2 = Continuous
     if gain_auto == 0:
         aravissrc.set_property("gain", gain)
-    aravissrc.set_property("num-arv-buffers", 10)
+    aravissrc.set_property("num-arv-buffers", 50)
     if camera.type == "TheImagingSource":
         aravissrc.set_property("features", "Zoom=0")
 
