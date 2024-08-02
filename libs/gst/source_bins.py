@@ -16,8 +16,41 @@ from ..utils import float_to_fraction
 PLACEHOLDER_PATH = "/home/seaonics/Dev/VideoWallOrin/data/assets/image_placeholder.png"
 
 
+def decodebin_child_added(child_proxy, Object, name, user_data):
+    print("Decodebin child added:", name, "\n")
+    if name.find("decodebin") != -1:
+        Object.connect("child-added", decodebin_child_added, user_data)
+    if name.find("nvv4l2decoder") != -1:
+        Object.set_property("enable-max-performance", True)
+        Object.set_property("drop-frame-interval", 0)
+        Object.set_property("num-extra-surfaces", 0)
+
+
+
+def cb_newpad(decodebin, pad, data):
+    global streammux
+    print("In cb_newpad\n")
+    caps = pad.get_current_caps()
+    gststruct = caps.get_structure(0)
+    gstname = gststruct.get_name()
+
+    print("gstname=", gstname)
+    if gstname.find("video") != -1:
+        source_bin = data
+        queue = source_bin.get_by_name("src-queue")
+
+        q_pad = queue.get_static_pad("sink")
+        if not q_pad:
+            sys.stderr.write("Unable to get queue sink pad\n")
+
+        if not pad.link(q_pad) == Gst.PadLinkReturn.OK:
+            print("Unable to link decoder src pad to queue sink pad")
+
+
+
+
 def create_uridecodebin_source_bin(index: int, uri: str) -> Gst.Bin:
-    print("Creating uridecodebin for [%s]" % uri)
+    print(f"Creating uridecodebin for {uri}")
 
     bin_name = f"src-{index}-bin"
     print(bin_name)
@@ -26,7 +59,7 @@ def create_uridecodebin_source_bin(index: int, uri: str) -> Gst.Bin:
     if not bin:
         sys.stderr.write(" Unable to create bin \n")
 
-    uridecodebin = Gst.ElementFactory.make("uridecodebin", f"src-{index}-uri-decode-bin")
+    uridecodebin = Gst.ElementFactory.make("uridecodebin", f"source-{index}")
     if not uridecodebin:
         sys.stderr.write(" Unable to create uri decode bin \n")
 

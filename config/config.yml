@@ -11,6 +11,7 @@ mqtt:
     - 'CamObjects/Camera1/'
     - 'CamObjects/Camera2/'
     - 'CamObjects/Camera3/'
+    - 'CamObjects/Camera4/'
   camera_subtopics: 
     - 'IP'
     - 'Type'

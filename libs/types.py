@@ -85,8 +85,6 @@ class Source:
             src.set_property("gain", self.camera.gain)  
         if self.camera.has_zoom and self.camera.zoom is not None:
             src.set_property("features", f"Zoom={self.camera.zoom} ExposureTime={self.camera.exposure_time} Gain={self.camera.gain}")
-            actual = src.get_property("features")
-            print(f"Desired zoom: {self.camera.zoom}   Actual zoom: {actual}")
-        
+            actual = src.get_property("features")        
          
 

@@ -416,7 +416,7 @@ def add_source(source_id: int = None, camera: Camera = None):
         elif camera.type == "Compressed":
             logger.debug(f"Adding {camera.type} camera {camera.ip} at source {source_id}")
             if camera.uri is None:
-                camera.uri = "rtsp://" + camera.ip + "/stream"
+                camera.uri = "rtsp://" + camera.ip + "/stream-1.sdp"
             source_bin = create_uridecodebin_source_bin(source_id, camera.uri)
             g_sources[source_id].active = True
             g_sources[source_id].uri = camera.uri
