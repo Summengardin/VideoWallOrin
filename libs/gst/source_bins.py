@@ -5,7 +5,7 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 
 
-from ..grabber.aravis_frame_grabber import CamGrabber
+# from ..grabber.aravis_frame_grabber import CamGrabber
 
 # sys.path.append('..')
 # sys.path.append('../..')
@@ -13,7 +13,7 @@ from ..grabber.aravis_frame_grabber import CamGrabber
 from ..types import Source, Camera
 from ..utils import float_to_fraction
 
-PLACEHOLDER_PATH = "/home/seaonics/Dev/VideoWallOrin/data/assets/image_placeholder.png"
+PLACEHOLDER_PATH = "../data/assets/image_placeholder.png"
 
 
 def decodebin_child_added(child_proxy, Object, name, user_data):

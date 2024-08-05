@@ -6,6 +6,7 @@ ARG DEBIAN_FRONTEND="noninteractive"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     net-tools \
+    kmod \
     iputils-ping \
     libxml2-dev \
     gobject-introspection \
@@ -28,61 +29,85 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-gi python3-dev python3-gst-1.0 python-gi-dev git meson \
     python3 python3-pip python3.10-dev cmake g++ build-essential libglib2.0-dev \
     libglib2.0-dev-bin libgstreamer1.0-dev libtool m4 autoconf automake libgirepository1.0-dev libcairo2-dev \
+    libxml2-dev libglib2.0-dev cmake libusb-1.0-0-dev gobject-introspection \
+    libgtk-3-dev gtk-doc-tools  xsltproc libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev libgstreamer-plugins-good1.0-dev \
+    libgirepository1.0-dev gettext \
     && rm -rf /var/lib/apt/lists/*
 
 
 
+RUN ls -l /opt/nvidia/deepstream/deepstream/lib/libnvbufsurface.so \
+    && echo "Library found, proceeding with CMake" \
+    || (echo "Library not found, aborting" && exit 1)
 
 # Install Deepstream-Python-Apps
-# WORKDIR /opt/nvidia/deepstream/deepstream/sources/
+WORKDIR /opt/nvidia/deepstream/deepstream/sources/
 
-# RUN git clone https://github.com/NVIDIA-AI-IOT/deepstream_python_apps \
-#     && cd deepstream_python_apps \
-#     && git submodule update --init
-# RUN apt-get update && apt-get install -y apt-transport-https ca-certificates -y \
-#     && update-ca-certificates \
-#     && rm -rf /var/lib/apt/lists/*
 
-# WORKDIR /opt/nvidia/deepstream/deepstream/sources/deepstream_python_apps/3rdparty/gstreamer/subprojects/gst-python/
-# RUN meson setup build \
-#     && cd build \
-#     && ninja \
-#     && ninja install
+
+RUN git clone https://github.com/NVIDIA-AI-IOT/deepstream_python_apps \
+    && cd deepstream_python_apps \
+    && git submodule update --init \
+    && apt-get update && apt-get install -y apt-transport-https ca-certificates -y \
+    && update-ca-certificates \
+    && cd 3rdparty/gstreamer/subprojects/gst-python/ \
+    && meson setup build \
+    && cd build \
+    && ninja \
+    && ninja install \
+    && cd /opt/nvidia/deepstream/deepstream/sources/deepstream_python_apps/bindings \ 
+    && mkdir build 
+    # && cd build \
+    # && cmake .. -DPIP_PLATFORM=linux_aarch64
+    # && make -j$(nproc) \
+    # && pip3 install ./pyds-1.1.11-py3-none*.whl
+    
+
+# # WORKDIR /opt/nvidia/deepstream/deepstream/sources/deepstream_python_apps/3rdparty/gstreamer/subprojects/gst-python/
+# # RUN meson setup build \
+# #     && cd build \
+# #     && ninja \
+# #     && ninja install
 
 # WORKDIR /opt/nvidia/deepstream/deepstream/sources/deepstream_python_apps/bindings/build
 
-# # RUN cmake .. \
-# #     && make -j$(nproc) \
-# #     && pip3 install ./pyds-1.1.11-py3-none*.whl
+# RUN cmake .. -DPYTHON_MAJOR_VERSION=3 -DPYTHON_MINOR_VERSION=10 \
+    # -DPIP_PLATFORM=linux_aarch64 -DDS_PATH=/opt/nvidia/deepstream/deepstream/\
+#     && make -j$(nproc) \
+#     && pip3 install ./pyds-1.1.11-py3-none*.whl
 
 
+COPY /aravis /tmp/aravis/
 
+WORKDIR /tmp
 
-# WORKDIR /tmp
-
-# # Install ARAVIS
+# Install ARAVIS
 # RUN git clone https://github.com/AravisProject/aravis.git && \
-#     cd aravis && \
-#     meson setup build -Dviewer=enabled -Dintrospection=enabled && \
-#     ninja -C build && \
-#     ninja -C build install && \
-#     cd .. && rm -rf aravis
+RUN cd aravis && \
+    meson setup build -Dviewer=enabled -Dintrospection=enabled && \
+    ninja -C build && \
+    ninja -C build install && \
+    cd .. && rm -rf aravis
 
 
-# # Install TISCAMERA
-# WORKDIR /tisinstall
-# # tiscamera trenger sudo... Se: tiscamera/scripts/dependency-manager
-# RUN apt-get update && apt-get install sudo libzip-dev -y && pip3 install sphinx
-# RUN git clone https://github.com/TheImagingSource/tiscamera.git && \
-#     cd tiscamera && \
-#     git checkout v-tiscamera-1.1.0 && ./scripts/dependency-manager install && \
-#     mkdir build && cd build && cmake .. \
-#     -DTCAM_BUILD_ARAVIS=ON \
-#     -DTCAM_BUILD_TOOLS=ON \
-#     -DTCAM_BUILD_LIBUSB=OFF \
-#     -DTCAM_BUILD_V4L2=OFF \
-#     && make && make install \
-#     && cd ../.. && rm -rf tiscamera
+# Install TISCAMERA
+WORKDIR /tisinstall
+# tiscamera trenger sudo... Se: tiscamera/scripts/dependency-manager
+RUN apt-get update && apt-get install sudo libzip-dev -y && pip3 install sphinx
+RUN git clone https://github.com/TheImagingSource/tiscamera.git && \
+    cd tiscamera && \
+    git checkout v-tiscamera-1.1.0 && ./scripts/dependency-manager install && \
+    mkdir build && cd build && cmake .. \
+    -DTCAM_BUILD_ARAVIS=OFF \
+    -DTCAM_BUILD_TOOLS=OFF \
+    -DTCAM_BUILD_LIBUSB=OFF \
+    -DTCAM_BUILD_DOCUMENTATION=OFF\
+    -DTCAM_BUILD_V4L2=OFF \
+    -DTCAM_ARAVIS_USB_VISION=OFF\
+    -DTCAM_DOWNLOAD_MESON=OFF\
+    && make && make install \
+    && cd ../.. && rm -rf tiscamera
 
 
 # # Install Deepstream-Yolo
@@ -95,12 +120,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 
 
-# # ENV GST_PLUGIN_PATH="/usr/local/lib/x86_64-linux-gnu/gstreamer-1.0:$GST_PLUGIN_PATH"
-# # ENV LD_LIBRARY_PATH="/usr/local/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
-# ENV USE_NEW_NVSTREAMMUX="yes"
+# ENV GST_PLUGIN_PATH="/usr/local/lib/x86_64-linux-gnu/gstreamer-1.0:$GST_PLUGIN_PATH"
+ENV GST_PLUGIN_PATH="/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0"
+ENV LD_LIBRARY_PATH="/usr/local/lib/aarch64-linux-gnu:$LD_LIBRARY_PATH"
+ENV USE_NEW_NVSTREAMMUX="yes"
 
-# WORKDIR /app
+WORKDIR /app
 
-# COPY add_delete_sources_showcase.py /app
-# COPY add_remove_with_GUI.py /app
-# COPY lib /app/lib
+ADD requirements.txt /app/
+
+RUN pip3 install -r requirements.txt
+
+COPY src /app/src
+COPY libs /app/libs
+COPY data /app/data
+COPY config /app/config

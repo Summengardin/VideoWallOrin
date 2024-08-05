@@ -1,0 +1,30 @@
+
+# TO RUN: docker compose up
+# FOR DEBUG (with shell): docker compose run videowall sh
+
+
+services:
+  videowall:
+    image: videowallorin
+    runtime: nvidia
+    command: sh
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    environment:
+      - DISPLAY=${DISPLAY}
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics
+      - XDG_RUNTIME_DIR=/tmp/runtime-docker
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /etc/X11:/etc/X11
+      - ~/.Xauthority:/root/.Xauthority
+    network_mode: host
+    working_dir: /app
+    tty: true
+    stdin_open: true
+    privileged: true
+    restart: always

@@ -7,7 +7,6 @@ import time
 import gi
 gi.require_version('Gst', '1.0')
 gi.require_version('GLib', '2.0')
-gi.require_version("Gtk", "4.0")
 from gi.repository import Gst, GLib
 
 sys.path.append('..')
@@ -28,7 +27,7 @@ logger.setLevel(logging.DEBUG)
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--config', '-c', type=str, default='/home/seaonics/Dev/VideoWallOrin/config/config.yml')
+parser.add_argument('--config', '-c', type=str, default='../config/config.yml')
 
 Gst.init(None)
 
@@ -205,12 +204,16 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
                                 success = run_with_timeout(add_source, args=(source_id,), kwargs={'camera': g_sources[source_id].camera})
                                 if not success:
                                     logger.error(f"Adding source {source_id} timed out")
+                                    success = run_with_timeout(add_source, args=(source_id,))
+                                    if not success:
+                                        logger.error(f"Adding placeholder source {source_id} timed out")
                             except Exception as e:
                                 logger.error(f"Could not add source {source_id}")
                                 traceback.print_exc()
                                 success = run_with_timeout(add_source, args=(source_id,))
                                 if not success:
                                     logger.error(f"Adding placeholder source {source_id} timed out")
+                                
 
                         else:
                             try:
@@ -510,11 +513,12 @@ def remove_source(source_id: int):
     print(f"state_return = {state_return}")
 
     if state_return == Gst.StateChangeReturn.SUCCESS:
+        g_sources[source_id].active = False
         pad_name = "sink_%u" % source_id
         sinkpad = streammux.get_static_pad(pad_name)
         if sinkpad is not None:
             sinkpad.send_event(Gst.Event.new_eos())
-        
+            # sinkpad.send_event(Gst.Event.new_flush_start())
             sinkpad.send_event(Gst.Event.new_flush_stop(False))
             streammux.release_request_pad(sinkpad)
 
@@ -534,6 +538,7 @@ def remove_source(source_id: int):
         sinkpad = streammux.get_static_pad("sink_%u" % source_id)
         if sinkpad is not None:
             sinkpad.send_event(Gst.Event.new_eos())
+            # sinkpad.send_event(Gst.Event.new_flush_start())
             sinkpad.send_event(Gst.Event.new_flush_stop(False))
             streammux.release_request_pad(sinkpad)
 
@@ -740,8 +745,7 @@ def message_handler(bus, message, loop):
             if parsed:
                 print("Got EOS from stream %d" % source_id)
                 g_sources[source_id].eos = True
-                # remove_source(source_id)
-                # add_source(source_id) # Add placeholder source
+                remove_source(source_id)
 
     return True
 
