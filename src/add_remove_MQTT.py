@@ -10,11 +10,10 @@ gi.require_version('GLib', '2.0')
 from gi.repository import Gst, GLib
 
 sys.path.append('..')
-from libs.types import SourceType, Source, Camera, PipelineConfig
+from libs.types import SourceType, Source, Camera
 from libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin, create_camgrabber_source_bin
 from libs.utils import index_dataclass, find_digits_in_string, parse_config
 from libs.mqtt.mqtt_client import MQTTClient
-from config.config import Config
 
 from functools import partial
 from dataclasses import dataclass
@@ -35,7 +34,7 @@ Gst.init(None)
 
 # Constants (That can be modified with GUI)    
 
-pipeline_config = PipelineConfig()
+pipeline_config = None
 OUTPUT_WIDTH = 3840
 OUTPUT_HEIGHT = 2160
 TILER_ROWS = 2
@@ -112,8 +111,6 @@ def update_camera_values(camera_ip : str = None):
         source_id = index_dataclass(g_sources, 'ip', camera_ip)
     except ValueError:
         print(f"Camera {camera_ip} not found")
-        for src in g_sources:
-            print(src)
         return
     
 
@@ -161,27 +158,27 @@ def mqtt_handler(queue: multiprocessing.Queue, stop_event: multiprocessing.Event
             elif command == 'Width':
                 global OUTPUT_WIDTH
                 OUTPUT_WIDTH = int(payload)
-                pipeline_config.width = int(payload)
+                pipeline_config['width'] = int(payload)
                 logger.debug(f"Output width: {OUTPUT_WIDTH}")
             elif command == 'Height':
                 global OUTPUT_HEIGHT
                 OUTPUT_HEIGHT = int(payload)
-                pipeline_config.height = int(payload)
+                pipeline_config['height'] = int(payload)
                 logger.debug(f"Output height: {OUTPUT_HEIGHT}")
             elif command == 'TilerRows':
                 global TILER_ROWS
                 TILER_ROWS = int(payload)
-                pipeline_config.rows = int(payload)
+                pipeline_config['rows'] = int(payload)
                 logger.debug(f"Tiler rows: {TILER_ROWS}")
             elif command == 'TilerColumns': 
                 global TILER_COLS
                 TILER_COLS = int(payload)
-                pipeline_config.cols = int(payload)
+                pipeline_config['cols'] = int(payload)
                 logger.debug(f"Tiler cols: {TILER_COLS}")
             elif command == 'StartPipeline':
                 if int(payload) > 0:
-                    pipeline_config.enable_pipeline = True
-                    logger.debug(f"Pipeline enabled: {pipeline_config.enable_pipeline}")
+                    pipeline_config['enable_pipeline'] = True
+                    logger.debug(f"Pipeline enabled: {pipeline_config['enable_pipeline']}")
                     # print("\n=== MISSING IMPLEMENTATION TO START PIPELINE ===\n")
             elif command.startswith('Tile'):
                 index = find_digits_in_string(command)
@@ -280,13 +277,13 @@ def mqtt_on_message_callback(client, userdata, message):
     
 def run_mqtt(stop_event: multiprocessing.Event, queue: multiprocessing.Queue, config):
 
-    mqtt_config = config
-    broker = mqtt_config['broker']
-    port = mqtt_config['port']
-    cameras = mqtt_config['cameras']
-    camera_subtopics = mqtt_config['camera_subtopics']
-    vision_controllers = mqtt_config['vision_controllers']
-    vision_controller_subtopics = mqtt_config['vision_controller_subtopics']
+
+    broker = config['broker']
+    port = config['port']
+    cameras = config['cameras']
+    camera_subtopics = config['camera_subtopics']
+    vision_controllers = config['vision_controllers']
+    vision_controller_subtopics = config['vision_controller_subtopics']
 
     topics = []
     for camera in cameras:
@@ -571,11 +568,9 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     global g_num_sources, g_sources, pipeline_config
     global loop, pipeline, streammux, sink, nvvideoconvert, nvosd, tiler
     
-    while not pipeline_config.ready():
-        if stop_event.is_set():
-            return
-        
+    while not pipeline_config['width'] or not pipeline_config['height'] or not pipeline_config['tiler_rows'] or not pipeline_config['tiler_columns']:
         time.sleep(1)
+
 
     logger.debug(f"Gstreamer initialized: {Gst.is_initialized()} \n")
 
@@ -600,9 +595,7 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     pipeline.add(streammux)
     logger.debug("Added streammux \n")
 
-    # add_source(camera_name="10.1.3.75", source_id=1)
-    # add_source(source_id=2)
-    # add_source(camera_name="10.1.3.74")
+
     for i in range(MAX_NUM_SOURCES):
         add_source(source_id=i)
 
@@ -758,9 +751,11 @@ if __name__ == "__main__":
     message_queue = multiprocessing.Queue()
 
     config_file = args.config
-    config = Config(config_file)
+    # config = Config(config_file)
+    mqtt_config = parse_config(config_file)['mqtt']
+    pipeline_config = parse_config(config_file)['pipeline']
 
-    mqtt_process = multiprocessing.Process(target=run_mqtt, args=(stop_event, message_queue, config.mqtt_config))
+    mqtt_process = multiprocessing.Process(target=run_mqtt, args=(stop_event, message_queue, mqtt_config))
     mqtt_process.start()
 
 

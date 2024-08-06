@@ -14,26 +14,6 @@ class SourceType(Enum):
 
 
 @dataclass
-class PipelineConfig:
-    rows: int = None
-    cols: int = None
-    width: int = None
-    height: int = None
-    sink_element: str = "nv3dsink"
-    enable_pipeline: bool = False
-    
-    def ready(self):
-        if not self.width or not self.height or not self.rows or not self.cols:
-            return False
-        return True 
-    
-    def max_num_sources(self):
-        if not self.rows or not self.cols:
-            return 0
-        return self.rows * self.cols
-
-
-@dataclass
 class Camera:
     id: int = None
     ip: str = None

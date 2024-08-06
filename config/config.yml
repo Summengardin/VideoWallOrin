@@ -37,8 +37,8 @@ mqtt:
     - 'Fullscreen'
     - 'Shutdown': 1
     - 'StartPipeline': 1
-    - 'Tile00/Source'
-    - 'Tile00/Enable'
+    # - 'Tile00/Source'
+    # - 'Tile00/Enable'
     - 'Tile01/Source'
     - 'Tile01/Enable'
     - 'Tile02/Source'
