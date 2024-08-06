@@ -53,8 +53,6 @@ class Source:
         if src is None:
             return
 
-
-
         if self.camera.exposure_time_auto is not None:
             src.set_property("exposure-auto", self.camera.exposure_time_auto)
         if self.camera.exposure_time is not None and self.camera.exposure_time_auto == 0:

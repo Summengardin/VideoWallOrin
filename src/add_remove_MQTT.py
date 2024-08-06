@@ -762,7 +762,7 @@ if __name__ == "__main__":
     mqtt_handler_thread = threading.Thread(target=(mqtt_handler), args=(message_queue, stop_event))
     mqtt_handler_thread.start()
 
-    pipe = setup_pipeline
+    # pipe = setup_pipeline
 
     pipeline_thread = threading.Thread(target=(setup_pipeline), args=(stop_event,))
     pipeline_thread.start()
