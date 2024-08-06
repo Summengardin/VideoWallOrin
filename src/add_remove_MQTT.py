@@ -445,7 +445,6 @@ def add_source(source_id: int = None, camera: Camera = None):
     g_sources[source_id].bin = source_bin
 
     logger.debug(f"Adding source {source_id} to pipeline")
-
     pipeline.add(source_bin)
 
     logger.debug(f"Added source {source_id} to pipeline")
@@ -596,8 +595,6 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     logger.debug("Added streammux \n")
 
 
-    for i in range(MAX_NUM_SOURCES):
-        add_source(source_id=i)
 
 
     logger.info("Creating queue \n")
@@ -624,6 +621,7 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     sink = Gst.ElementFactory.make(SINK_ELEMENT, "sink")
     if not sink:
         logger.error(" Unable to create sink \n")
+
 
 
     logger.info("Adding elements to Pipeline \n")
@@ -658,6 +656,9 @@ def setup_pipeline(stop_event: multiprocessing.Event):
     sink.set_property("enable-last-sample", False)
     # sink.set_property("async", False)
 
+
+    for i in range(MAX_NUM_SOURCES):
+        add_source(source_id=i)
 
 
 
@@ -757,15 +758,17 @@ if __name__ == "__main__":
 
     mqtt_process = multiprocessing.Process(target=run_mqtt, args=(stop_event, message_queue, mqtt_config))
     mqtt_process.start()
+    # mqtt_process = threading.Thread(target=run_mqtt, args=(stop_event, message_queue, mqtt_config))
+    # mqtt_process.start()
 
-
-    mqtt_handler_thread = threading.Thread(target=(mqtt_handler), args=(message_queue, stop_event))
-    mqtt_handler_thread.start()
-
-    pipe = setup_pipeline
 
     pipeline_thread = threading.Thread(target=(setup_pipeline), args=(stop_event,))
     pipeline_thread.start()
+
+    time.sleep(1)
+
+    mqtt_handler_thread = threading.Thread(target=(mqtt_handler), args=(message_queue, stop_event))
+    mqtt_handler_thread.start()
 
 
     try:
