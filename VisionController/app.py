@@ -22,9 +22,6 @@ Gst.init(None)
 seq_step = 0
 add_remove = 1
 
-Cameras = [Camera(ip="10.1.3.74", type="Basler", width=1920, height=1080, format="BayerRG8", framerate=60), Camera(ip="10.1.3.79", type="TheImagingSource", width=1920, height=1080, format="BayerRG8", framerate=54)]
-
-
 class App():
 
     def __init__(self, config_file):
@@ -109,14 +106,20 @@ class App():
 
 
 
-    def _handle_tile_command(self, command, topic_split, payload):
-        index = find_digits_in_string(command)
+    def _handle_tile_command(self, command, topic_split, payload): 
+        try:
+            index = find_digits_in_string(command)
+        except ValueError:
+            return
         source_id = index - 1
         subcommand = topic_split[3]
 
         if index is not None:
             if subcommand == 'Source':
-                camera_index = find_digits_in_string(payload)
+                try:
+                    camera_index = find_digits_in_string(payload)
+                except ValueError:
+                    camera_index = 0
                 self.pipeline_manager.sources[source_id].camera = self.pipeline_manager.cameras[camera_index]
             elif subcommand == 'Enable':
                 self.pipeline_manager.sources[source_id].enabled = int(payload) > 0

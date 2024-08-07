@@ -7,11 +7,11 @@ mqtt:
 
   # Cameras are defined in the form 'CamObjects/Camera0/'
   cameras:  
-    - 'CamObjects/Camera0/'
     - 'CamObjects/Camera1/'
     - 'CamObjects/Camera2/'
     - 'CamObjects/Camera3/'
     - 'CamObjects/Camera4/'
+    - 'CamObjects/Camera5/'
   camera_subtopics: 
     - 'IP'
     - 'Type'

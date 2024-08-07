@@ -34,6 +34,7 @@ class PipelineManager:
         self.num_sources = 0
         self.sources = [Source(id=i, name=f"Source {i}") for i in range(self.max_num_sources)]
         self.cameras = [Camera() for _ in range(10)]
+        self.cameras[0] = Camera(ip="test", width=1920, height=1080, framerate=60) 
         self.last_num_rendered_frames = 0
         self.pipeline_pause_because_last_source = False
 
@@ -83,11 +84,7 @@ class PipelineManager:
 
     def toggle_fullscreen(self, source_id):
         if self.tiler:
-            if self.tiler.get_property('show-source') >= 0:
-                self.tiler.set_property('show-source', -1)
-            else:
-                self.tiler.set_property('show-source', source_id)
-
+            self.tiler.set_property('show-source', source_id)
 
     def update_camera_features(self, camera_ip: str):
         try: 
