@@ -35,6 +35,7 @@ class Camera:
 @dataclass
 class Source:
     id: int = None
+    cam_id: int = None
     name: str = None
     ip: str = None
     uri: str = None
@@ -43,8 +44,9 @@ class Source:
     bin: Gst.Bin = None
     eos: bool = False
     camera: Camera = None
+    enabled: bool = False
 
-    def update_camera_values(self):
+    def update_camera_features(self):
         if self.bin is None or self.camera is None:
             print("Camera or bin is None")
             return
@@ -52,8 +54,6 @@ class Source:
         src = self.bin.get_by_name(f"source-{self.ip}")
         if src is None:
             return
-
-
 
         if self.camera.exposure_time_auto is not None:
             src.set_property("exposure-auto", self.camera.exposure_time_auto)

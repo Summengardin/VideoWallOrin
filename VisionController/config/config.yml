@@ -7,11 +7,11 @@ mqtt:
 
   # Cameras are defined in the form 'CamObjects/Camera0/'
   cameras:  
-    - 'CamObjects/Camera0/'
     - 'CamObjects/Camera1/'
     - 'CamObjects/Camera2/'
     - 'CamObjects/Camera3/'
     - 'CamObjects/Camera4/'
+    - 'CamObjects/Camera5/'
   camera_subtopics: 
     - 'IP'
     - 'Type'
@@ -55,7 +55,7 @@ pipeline:
   width: 3840
   height: 2160
   sink_element: 'nv3dsink'
-  streammux_config: '/home/seaonics/Dev/VideoWallOrin/mux_config_source1.txt'
+  streammux_config: '/home/seaonics/Dev/VideoWallOrin/VisionController/config/streammux_config.txt'
   max_num_sources: 4
   batched_push_timeout: 20000
   batch_size: 4

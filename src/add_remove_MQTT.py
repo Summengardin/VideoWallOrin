@@ -13,7 +13,7 @@ sys.path.append('..')
 from libs.types import SourceType, Source, Camera
 from libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin, create_camgrabber_source_bin
 from libs.utils import index_dataclass, find_digits_in_string, parse_config
-from libs.mqtt.mqtt_client import MQTTClient
+from libs.mqtt.mqtt_client_ import MQTTClient
 
 from functools import partial
 from dataclasses import dataclass
@@ -115,9 +115,6 @@ def update_camera_values(camera_ip : str = None):
     
 
     g_sources[source_id].update_camera_values()
-
-
-
 
 
 
@@ -306,7 +303,7 @@ def run_mqtt(stop_event: multiprocessing.Event, queue: multiprocessing.Queue, co
 
     topics.append(('VisionControllers/VisionController0/Stop', 1))
 
-    mqtt_client = MQTTClient(broker, port, topics, userdata={'queue': queue})
+    mqtt_client = MQTTClient(broker, port, topics, stop_event, userdata={'queue': queue})
     mqtt_client.set_on_message_callback(mqtt_on_message_callback)
     
     while True:
@@ -319,13 +316,13 @@ def run_mqtt(stop_event: multiprocessing.Event, queue: multiprocessing.Queue, co
                 break
             else:
                 logging.error("Connection to MQTT broker timed out. Trying again.")
-        except KeyboardInterrupt:
-            break
+        # except KeyboardInterrupt:
+        #     break
 
     try:
         stop_event.wait()
-    except KeyboardInterrupt:
-        stop_event.set()
+    except Exception as e:
+        logger.error(e)
 
     mqtt_client.stop()
 
@@ -587,7 +584,7 @@ def setup_pipeline(stop_event: multiprocessing.Event):
 
     streammux.set_property("batched-push-timeout", 200000)
     streammux.set_property("batch-size", MAX_NUM_SOURCES)
-    streammux.set_property("config-file-path", "../config/mux_config_source1.txt")
+    streammux.set_property("config-file-path", "../config/streammux_config.txt")
     streammux.set_property("sync-inputs", 0)
     
     logger.debug("Adding streammux \n")
@@ -756,19 +753,27 @@ if __name__ == "__main__":
     mqtt_config = parse_config(config_file)['mqtt']
     pipeline_config = parse_config(config_file)['pipeline']
 
-    mqtt_process = multiprocessing.Process(target=run_mqtt, args=(stop_event, message_queue, mqtt_config))
+    # mqtt_process = multiprocessing.Process(target=run_mqtt, args=(stop_event, message_queue, mqtt_config))
+    # mqtt_process.start()
+    mqtt_process = threading.Thread(target=run_mqtt, args=(stop_event, message_queue, mqtt_config))
     mqtt_process.start()
     # mqtt_process = threading.Thread(target=run_mqtt, args=(stop_event, message_queue, mqtt_config))
     # mqtt_process.start()
 
 
+    mqtt_handler_thread = threading.Thread(target=(mqtt_handler), args=(message_queue, stop_event))
+    mqtt_handler_thread.start()
+
+    # pipe = setup_pipeline
+
     pipeline_thread = threading.Thread(target=(setup_pipeline), args=(stop_event,))
     pipeline_thread.start()
 
-    time.sleep(1)
+    time.sleep(2)
 
     mqtt_handler_thread = threading.Thread(target=(mqtt_handler), args=(message_queue, stop_event))
     mqtt_handler_thread.start()
+
 
 
     try:
