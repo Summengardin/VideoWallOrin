@@ -21,9 +21,12 @@ class MQTTClient:
 
         self.connected = False
 
+        self.connection_thread = None
+
     def on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code == 0:
             logger.info("Connected to MQTT Broker!")
+            self.connected = True
             for topic in self.topics:
                 client.subscribe(topic)
                 logger.debug(f"Subscribed to {topic[0]}")
@@ -41,19 +44,21 @@ class MQTTClient:
         logger.info("Disconnected from broker")
         self.connected = False
         # Try to reconnect if not disconnected intentionally
-        while not self.connected:
-            try:
+        while not self.stop_event.is_set():
+            try:   
+                logger.info("Attempting to reconnect...")
                 client.reconnect()
             except Exception as e:
-                logger.error(f"Reconnection failed: {e}")
-                time.sleep(5)
+                logger.error(f"Reconnection failed: {e}") 
 
         
 
     def start(self):
+        
         while not self.stop_event.is_set():
             try:
                 self.client.connect(self.broker, self.port, 60)
+        
                 break
             except OSError:
                 logger.error("Failed to connect to MQTT broker. Retrying in 5 seconds...")
