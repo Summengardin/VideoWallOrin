@@ -156,6 +156,8 @@ class PipelineManager:
         self.tiler.set_property("columns", self.tiler_cols)
         self.tiler.set_property("width", self.width)
         self.tiler.set_property("height", self.height)
+        self.tiler.set_property("nvbuf-memory-type", 0)
+        self.tiler.set_property("gpu-id", 0)
 
         self.sink.set_property("sync", False)
 
@@ -201,7 +203,6 @@ class PipelineManager:
         #     source_id = (source_id + 1) % MAX_NUM_SOURCES
         #     i += 1
         #     
-
         # Remove current source if current is placeholder
         if self.sources[source_id].bin is not None:
             self.remove_source(source_id)
@@ -310,7 +311,7 @@ class PipelineManager:
 
         
     def remove_source(self, source_id: int):
-        logger.debug(f"Stopping and releasing source {source_id} \n")
+        logger.debug(f"Removing source {source_id}")
 
         if self.sources[source_id].bin is None:
             return True

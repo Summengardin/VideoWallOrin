@@ -172,6 +172,9 @@ def create_aravis_source_bin(index: int, camera: Camera = None) -> Gst.Bin:
     queue2.set_property("max-size-bytes", 0)
     queue2.set_property("max-size-time", 0)
 
+    nvvidconv.set_property("nvbuf-memory-type", 0)
+    nvvidconv.set_property("gpu-id", 0)
+
 
     bin.add(aravissrc)
     bin.add(capsfilter_src)
@@ -247,6 +250,9 @@ def create_tcambin_source_bin(index: int, camera_name: str = None) -> Gst.Bin:
     queue.set_property("max-size-bytes", 0)
     queue.set_property("max-size-buffers", 1)
     queue.set_property("leaky", 1)
+
+    nvvidconv.set_property("nvbuf-memory-type", 0)
+    nvvidconv.set_property("gpu-id", 0)
     
     bin.add(tcambin)
     bin.add(nvvidconv)
@@ -333,6 +339,9 @@ def create_placeholder_source_bin(index: int) -> Gst.Bin:
     queue.set_property("max-size-buffers", 1)
     queue.set_property("max-size-bytes", 0)
     queue.set_property("max-size-time", 0)
+
+    nvvidconv.set_property("nvbuf-memory-type", 0)
+    nvvidconv.set_property("gpu-id", 0)
 
     # Add elements to the bin
     bin.add(src_element)

@@ -43,6 +43,7 @@ class Source:
     bin: Gst.Bin = None
     eos: bool = False
     camera: Camera = None
+    enabled: bool = False
 
     def update_camera_values(self):
         if self.bin is None or self.camera is None:
