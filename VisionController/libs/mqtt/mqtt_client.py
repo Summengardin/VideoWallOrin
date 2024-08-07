@@ -34,11 +34,14 @@ class MQTTClient(mqtt.Client):
         else:
             logger.error(f"Failed to connect, return code {reason_code}")
 
+
     def on_message(self, client, userdata, msg):
         print(f"Received `{msg.payload.decode()}` from `{msg.topic}` topic")
 
+
     def set_on_message_callback(self, callback):
         self.client.on_message = callback
+
 
     def on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         """Callback for when the client disconnects from the server."""

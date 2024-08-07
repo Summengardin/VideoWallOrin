@@ -19,9 +19,8 @@ if Gst.is_initialized() == False:
 
 
 class PipelineManager:
-    def __init__(self, config = None, streammux_config_file = None):
+    def __init__(self, config = None):
         self.config = config
-        self.streammux_config_file = streammux_config_file
         self._initiate_config()
 
         self.elements = []
@@ -79,9 +78,25 @@ class PipelineManager:
         if self.loop:
             self.loop.quit()
         
-        
-
         print("=== Pipeline stopped ===\n")
+
+
+    def toggle_fullscreen(self, source_id):
+        if self.tiler:
+            if self.tiler.get_property('show-source') >= 0:
+                self.tiler.set_property('show-source', -1)
+            else:
+                self.tiler.set_property('show-source', source_id)
+
+
+    def update_camera_features(self, camera_ip: str):
+        try: 
+            source_index = index_dataclass(self.sources, 'ip', camera_ip)
+        except ValueError:
+            logger.error(f"Source with camera at ip {camera_ip} not found")
+            return
+
+        self.sources[source_index].update_camera_features()
 
 
     def _bus_message_handler(self, bus, message, loop):
@@ -118,8 +133,9 @@ class PipelineManager:
         self.width = self.config.get('width', 3840)
         self.height = self.config.get('height', 2160)
         self.batch_size = self.config.get('batch_size', 4)
-        self.max_num_sources = self.tiler_rows * self.tiler_cols
+        self.streammux_config_file = self.config.get('streammux_config', None)
 
+        self.max_num_sources = self.tiler_rows * self.tiler_cols
 
     def _create_pipeline(self):
         logger.info("Creating GStreamer Pipeline")
@@ -211,6 +227,9 @@ class PipelineManager:
         self.sources[source_id].active = False
         self.sources[source_id].eos = False
         self.sources[source_id].id = source_id
+
+
+
 
 
         if camera is not None:

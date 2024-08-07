@@ -14,7 +14,7 @@ PLACEHOLDER_PATH = "VisionController/data/assets/image_placeholder.png"
 
 
 def decodebin_child_added(child_proxy, Object, name, user_data):
-    logger.debug("Decodebin child added:", name, "\n")
+    logger.debug(f"Decodebin child added: {name}")
     if name.find("decodebin") != -1:
         Object.connect("child-added", decodebin_child_added, user_data)
     if name.find("nvv4l2decoder") != -1:
