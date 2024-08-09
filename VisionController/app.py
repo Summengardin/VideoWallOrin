@@ -12,10 +12,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+from visca_over_ip.camera import Camera as ViscaController
 from .libs.gst.pipeline_manager import PipelineManager
-from .libs.types import SourceType, Source, Camera
+from .libs.types import SourceType, Source
 from .libs.mqtt.mqtt_client_ import MQTTClient
 from .libs.utils import index_dataclass, parse_config, find_digits_in_string
+from .libs.camera import Camera
+
 
 Gst.init(None)
 
@@ -30,6 +33,7 @@ class App():
         self.config = parse_config(config_file)
         self.mqtt_config = self.config['mqtt']
         self.pipeline_config = self.config['pipeline']
+        self.general_config = self.config['general']
 
         self.command_queue = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=4)
@@ -39,6 +43,13 @@ class App():
         self.mqtt_client.set_on_message_callback(self._mqtt_on_message)
 
         self.pipeline_manager = PipelineManager(self.pipeline_config)
+
+        self.visca = ViscaController("10.1.3.78", self.general_config.get('visca_port'))
+
+        self.cameras = {}
+
+        self._test_zoom_dir = 1
+
 
 
     def run(self):
@@ -59,11 +70,14 @@ class App():
 
         try:
             while True:
-                time.sleep(1)  
+                self._zoom_visca_tester()
+                time.sleep(3)  
         except KeyboardInterrupt:
             pass
         finally:
             self.command_queue.put(None)
+
+        self.visca.close_connection()
         
         self.pipeline_manager.stop()
         self.mqtt_client.stop()
@@ -73,6 +87,21 @@ class App():
         pipeline_thread.join()
 
         print("Done")
+
+
+    def _zoom_visca_tester(self):
+        try:
+            self.visca.zoom(0)
+        except:
+            print("Failed to stop zoom")
+        if self._test_zoom_dir == 1:
+            self.visca.zoom_to(1)
+            self._test_zoom_dir = 0
+        else:
+            self.visca.zoom_to(0)
+            self._test_zoom_dir = 1
+
+
 
 
     def _command_handler(self):
@@ -121,6 +150,7 @@ class App():
                 except ValueError:
                     camera_index = 0
                 self.pipeline_manager.sources[source_id].camera = self.pipeline_manager.cameras[camera_index]
+                self.pipeline_manager.sources[source_id].cam_id = camera_index
             elif subcommand == 'Enable':
                 self.pipeline_manager.sources[source_id].enabled = int(payload) > 0
                 if int(payload) > 0:
@@ -160,14 +190,20 @@ class App():
 
     def _handle_cam_objects_message(self, topic_split, payload):
         index = find_digits_in_string(topic_split[1])
+        cam_id = topic_split[1]
         command = topic_split[2]
-        camera = self.pipeline_manager.cameras[index]
+
+        camera = self.cameras.get(cam_id, None)
+        if camera is None:
+            camera = Camera(id=cam_id)
+            self.cameras[cam_id] = camera
+
 
         if command == 'IP':
             camera.ip = payload
         elif command == 'Type':
             camera.type = payload
-            camera.has_zoom = payload == 'TheImagingSource'
+            camera.has_zoom = payload != 'Basler'
         elif command == 'Width':
             camera.width = int(payload)
         elif command == 'Height':
@@ -177,9 +213,9 @@ class App():
         elif command == 'Framerate':
             camera.framerate = float(payload)
         elif command == 'Zoom':
-            camera.zoom = int(payload)
+            camera.update_setting("zoom", payload)
         elif command == 'Exposure':
-            camera.exposure_time = float(payload)
+            camera.update_setting("exposure_time", payload)
         elif command == 'ExposureAuto':
             camera.exposure_time_auto = 2 if int(payload) > 0 else 0
         elif command == 'Gain':
@@ -203,6 +239,21 @@ class App():
             logger.error(f"Function {func.__name__} raised an exception: {e}")
             raise e
 
+    def _update_camera_features(self, source: Source):
+        if source.bin is None or source.camera is None:
+            print("Camera or bin is None")
+            return
+        
+        if source.camera.type == SourceType.BAYER:
+            src = source.bin.get_by_name(f"source-{source.ip}")
+            if src is None:
+                return
+
+            self._update_camera_features_aravis(src)
+
+        elif source.camera.type == SourceType.RTSP:
+            ip = source.camera.ip
+            self._update_camera_features_rtsp(ip)
 
     def _mqtt_on_message(self, client, userdata, message):
         payload = message.payload.decode('utf-8')

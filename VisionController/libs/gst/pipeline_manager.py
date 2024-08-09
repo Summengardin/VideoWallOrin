@@ -33,6 +33,7 @@ class PipelineManager:
         self.loop = None
         self.num_sources = 0
         self.sources = [Source(id=i, name=f"Source {i}") for i in range(self.max_num_sources)]
+        self.source_ips = []
         self.cameras = [Camera() for _ in range(10)]
         self.cameras[0] = Camera(ip="test", width=1920, height=1080, framerate=60) 
         self.last_num_rendered_frames = 0
@@ -94,6 +95,59 @@ class PipelineManager:
             return
 
         self.sources[source_index].update_camera_features()
+
+    def __update_camera_feature(self, camera_ip: str, setting: str, value):
+        """For now, not used. Need to update feature system of aravis, to be able to set individual features
+
+        :param camera_ip:   IP of the camera 
+        :param setting:     Name of the feature
+        :param value:       Value of the feature
+
+        :return:            True if success, False if not 
+        """
+        if camera_ip not in self.source_ips:
+            return False
+        
+
+        src = self.pipeline.get_by_name(f"source-{camera_ip}")
+        if src is None:
+            return False
+        
+        if setting == "exposure_time_auto":
+            src.set_property("exposure-auto", value)
+        elif setting == "exposure_time":
+            src.set_property("exposure", value)
+        elif setting == "gain_auto":
+            src.set_property("gain-auto", value)
+        elif setting == "gain":
+            src.set_property("gain", value)
+        else:
+            return False
+        
+        return True
+    
+    def update_camera_feature(self, camera_ip: str, features: dict):
+        """Updates the features of camera using aravis.set_property("features", )
+
+        :param camera_ip:   IP of the camera 
+        :param features:    Dictionary of features and values. For example: {"exposure_time_auto": 1, "exposure_time": 1000}
+
+        :return:            True if success, False if not
+        """
+        if camera_ip not in self.source_ips:
+            return False
+        
+        feature_str = " ".join([f"{key}={value}" for key, value in features.items()])
+        src = self.pipeline.get_by_name(f"source-{camera_ip}")
+        if src is None:
+            return False
+        
+        src.set_property("features", feature_str)
+        return True
+
+
+
+    
 
 
     def _bus_message_handler(self, bus, message, loop):
@@ -306,6 +360,8 @@ class PipelineManager:
 
         Gst.debug_bin_to_dot_file_with_ts(self.pipeline, Gst.DebugGraphDetails.ALL , "pipeline")
 
+        self.source_ips.append(self.sources[source_id].ip)
+
         return True
 
         if pipeline.get_state(Gst.CLOCK_TIME_NONE).state == Gst.State.PLAYING:
@@ -336,6 +392,7 @@ class PipelineManager:
             self.pipeline.set_state(Gst.State.PAUSED)
         
         bin = self.sources[source_id].bin
+        self.source_ips.remove(self.sources[source_id].ip)
 
         state_return = bin.set_state(Gst.State.NULL)
 
@@ -360,6 +417,8 @@ class PipelineManager:
             self.num_sources -= 1
             self.sources[source_id].active = False
             self.sources[source_id].bin = None
+
+        
 
         # self.sources[source_id] = Source()
 
