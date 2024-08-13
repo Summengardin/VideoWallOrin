@@ -5,10 +5,14 @@ gi.require_version('GLib', '2.0')
 from gi.repository import Gst, GLib
 from itertools import pairwise
 
+from dataclasses import dataclass 
+from enum import Enum
+
+
 import logging
 logger = logging.getLogger(__name__)
 
-from VisionController.libs.types import SourceType, Source, Camera
+from VisionController.libs.camera import Camera
 from VisionController.libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin
 from VisionController.libs.utils import index_dataclass, find_digits_in_string, parse_config
 
@@ -16,6 +20,35 @@ from VisionController.libs.utils import index_dataclass, find_digits_in_string, 
 
 if Gst.is_initialized() == False:
     Gst.init(None)
+
+class SourceType(Enum):
+    PLACEHOLDER = 0
+    TEST = 1
+    RTSP = 2
+    BAYER = 3
+
+class BaslerExposureAuto:
+    ONCE = 'Once'
+    CONTINUOUS = 'Continuous'
+    OFF = 'Off'
+    
+    
+
+
+@dataclass
+class Source:
+    id: int = None
+    cam_id: int = None
+    name: str = None
+    ip: str = None
+    uri: str = None
+    type: SourceType = SourceType.PLACEHOLDER
+    active: bool = False
+    bin: Gst.Bin = None
+    eos: bool = False
+    camera: Camera = None
+    enabled: bool = False
+
 
 
 class PipelineManager:
@@ -33,12 +66,12 @@ class PipelineManager:
         self.loop = None
         self.num_sources = 0
         self.sources = [Source(id=i, name=f"Source {i}") for i in range(self.max_num_sources)]
-        self.source_ips = []
-        self.cameras = [Camera() for _ in range(10)]
-        self.cameras[0] = Camera(ip="test", width=1920, height=1080, framerate=60) 
+        self.active_source_ips = []
+
         self.last_num_rendered_frames = 0
         self.pipeline_pause_because_last_source = False
 
+    
 
     def start(self):
 
@@ -87,15 +120,6 @@ class PipelineManager:
         if self.tiler:
             self.tiler.set_property('show-source', source_id)
 
-    def update_camera_features(self, camera_ip: str):
-        try: 
-            source_index = index_dataclass(self.sources, 'ip', camera_ip)
-        except ValueError:
-            logger.error(f"Source with camera at ip {camera_ip} not found")
-            return
-
-        self.sources[source_index].update_camera_features()
-
     def __update_camera_feature(self, camera_ip: str, setting: str, value):
         """For now, not used. Need to update feature system of aravis, to be able to set individual features
 
@@ -134,13 +158,20 @@ class PipelineManager:
 
         :return:            True if success, False if not
         """
-        if camera_ip not in self.source_ips:
+        if camera_ip not in self.active_source_ips:
+            logger.warning(f"Camera {camera_ip} not found")
+            for ip in self.active_source_ips:
+                print(f"Camera {ip}")
             return False
         
+    
+
         feature_str = " ".join([f"{key}={value}" for key, value in features.items()])
         src = self.pipeline.get_by_name(f"source-{camera_ip}")
         if src is None:
             return False
+        
+        print (f"Feature string: {feature_str}")
         
         src.set_property("features", feature_str)
         return True
@@ -171,6 +202,7 @@ class PipelineManager:
                     if self.sources[source_id].eos == False:
                         logger.error("Got unexpected EOS from stream %d" % source_id)
                         self.sources[source_id].eos = True
+                        self.add_source(source_id)
 
         return True
 
@@ -244,7 +276,7 @@ class PipelineManager:
             self.add_source(source_id)
 
 
-    def add_source(self, source_id : int, camera : Camera = None):
+    def add_source(self, source_id : int, camera : Camera = None) -> bool:
             
         logger.debug(f"Add Source: source_id = {source_id}, camera = {camera}")
 
@@ -284,7 +316,6 @@ class PipelineManager:
 
 
         if camera is not None:
-            logger.info(f"Adding camera {camera.ip} at source {source_id}")
             self.sources[source_id].ip = camera.ip
 
             self.sources[source_id].camera = camera
@@ -327,6 +358,7 @@ class PipelineManager:
             self.sources[source_id].type = SourceType.PLACEHOLDER
 
 
+
         if not source_bin:
             sys.stderr.write("Unable to create source bin\n")
             return False
@@ -338,6 +370,7 @@ class PipelineManager:
         logger.debug(f"Adding source {source_id} to pipeline")
 
         self.pipeline.add(source_bin)
+        self.active_source_ips.append(self.sources[source_id].ip)
 
         logger.debug(f"Added source {source_id} to pipeline")
 
@@ -360,8 +393,8 @@ class PipelineManager:
 
         Gst.debug_bin_to_dot_file_with_ts(self.pipeline, Gst.DebugGraphDetails.ALL , "pipeline")
 
-        self.source_ips.append(self.sources[source_id].ip)
-
+        
+    
         return True
 
         if pipeline.get_state(Gst.CLOCK_TIME_NONE).state == Gst.State.PLAYING:
@@ -392,7 +425,8 @@ class PipelineManager:
             self.pipeline.set_state(Gst.State.PAUSED)
         
         bin = self.sources[source_id].bin
-        self.source_ips.remove(self.sources[source_id].ip)
+        if self.sources[source_id].ip in self.active_source_ips:
+            self.active_source_ips.remove(self.sources[source_id].ip)
 
         state_return = bin.set_state(Gst.State.NULL)
 
@@ -451,3 +485,5 @@ class PipelineManager:
 
 
         return True
+    
+    

@@ -1,6 +1,10 @@
 # VideoWallOrin
 VideoWall files for Orin
 
+# Run
+```
+$ python -m VisionController
+``` 
 
 # Docker
  - Install Docker

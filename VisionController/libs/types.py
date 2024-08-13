@@ -6,57 +6,37 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 
 
-class SourceType(Enum):
-    PLACEHOLDER = 0
-    TEST = 1
-    RTSP = 2
-    BAYER = 3
-
-
-class ViscaAEMode(Enum):
-
-
-
-# @dataclass
-# class Camera:
-#     id: int = None
-#     ip: str = None
-#     uri: str = None
-#     name: str = None
-#     type: str = None
-#     width: int = None
-#     height: int = None
-#     format: str = None
-#     framerate: float = None
-#     zoom: int = None
-#     has_zoom: bool = False
-#     exposure_time: float = None
-#     exposure_time_auto: int = 2
-#     gain: float = None
-#     gain_auto: int = 2
-    
-#     def update_setting(self, setting: str, value):
-#         raise NotImplementedError("Must be implemented by subclasses")
-
-
-
 
 
 
 
 @dataclass
-class Source:
+class Camera:
     id: int = None
-    cam_id: int = None
-    name: str = None
     ip: str = None
     uri: str = None
-    type: SourceType = SourceType.PLACEHOLDER
-    active: bool = False
-    bin: Gst.Bin = None
-    eos: bool = False
-    # camera: Camera = None
-    enabled: bool = False
+    name: str = None
+    type: str = None
+    width: int = None
+    height: int = None
+    format: str = None
+    framerate: float = None
+    zoom: int = None
+    has_zoom: bool = False
+    exposure_time: float = None
+    exposure_time_auto: int = 2
+    gain: float = None
+    gain_auto: int = 2
+
+    controller = None
+    
+    def update_setting(self, setting: str, value):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+
+
+
+
 
     # def update_camera_features(self):
     #     if self.bin is None or self.camera is None:

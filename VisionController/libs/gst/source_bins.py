@@ -7,7 +7,8 @@ from gi.repository import Gst
 import logging
 logger = logging.getLogger(__name__)
 
-from ..types import Source, Camera
+from ..types import Source
+from ..camera import Camera
 from ..utils import float_to_fraction
 
 PLACEHOLDER_PATH = "VisionController/data/assets/image_placeholder.png"
@@ -95,9 +96,9 @@ def create_aravis_source_bin(index: int, camera: Camera = None) -> Gst.Bin:
     format = camera.format
     framerate = camera.framerate
     num, denom = float_to_fraction(framerate)
-    exposure_time_auto = camera.exposure_time_auto
+    exposure_time_auto = 'Off' if camera.exposure_time_auto == 0 else 'Continuous'
     exposure_time = camera.exposure_time
-    gain_auto = camera.gain_auto
+    gain_auto = 'Off' if camera.gain_auto == 0 else 'Continuous'
     gain = camera.gain
 
     bin = Gst.Bin.new(bin_name)
@@ -150,10 +151,10 @@ def create_aravis_source_bin(index: int, camera: Camera = None) -> Gst.Bin:
 
 
     aravissrc.set_property("exposure-auto", exposure_time_auto) # 0 = Off, 1 = Once, 2 = Continuous
-    if exposure_time_auto == 0:
+    if exposure_time_auto == 'Off':
         aravissrc.set_property("exposure", exposure_time)
     aravissrc.set_property("gain-auto", gain_auto) # 0 = Off, 1 = Once, 2 = Continuous
-    if gain_auto == 0:
+    if gain_auto == 'Off':
         aravissrc.set_property("gain", gain)
     aravissrc.set_property("num-arv-buffers", 50)
     if camera.type == "TheImagingSource":
