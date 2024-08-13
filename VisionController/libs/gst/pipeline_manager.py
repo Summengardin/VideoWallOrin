@@ -14,41 +14,12 @@ logger = logging.getLogger(__name__)
 
 from VisionController.libs.camera import Camera
 from VisionController.libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin
-from VisionController.libs.utils import index_dataclass, find_digits_in_string, parse_config
-
+from VisionController.libs.utils import index_dataclass, scale, clamp
+from VisionController.libs.types import Source, SourceType
 
 
 if Gst.is_initialized() == False:
     Gst.init(None)
-
-class SourceType(Enum):
-    PLACEHOLDER = 0
-    TEST = 1
-    RTSP = 2
-    BAYER = 3
-
-class BaslerExposureAuto:
-    ONCE = 'Once'
-    CONTINUOUS = 'Continuous'
-    OFF = 'Off'
-    
-    
-
-
-@dataclass
-class Source:
-    id: int = None
-    cam_id: int = None
-    name: str = None
-    ip: str = None
-    uri: str = None
-    type: SourceType = SourceType.PLACEHOLDER
-    active: bool = False
-    bin: Gst.Bin = None
-    eos: bool = False
-    camera: Camera = None
-    enabled: bool = False
-
 
 
 class PipelineManager:
@@ -71,7 +42,8 @@ class PipelineManager:
         self.last_num_rendered_frames = 0
         self.pipeline_pause_because_last_source = False
 
-    
+        self.exposure_auto_modes = ['Off', 'Once', 'Continuous']
+
 
     def start(self):
 
@@ -116,69 +88,9 @@ class PipelineManager:
         print("=== Pipeline stopped ===\n")
 
 
-    def toggle_fullscreen(self, source_id):
+    def _set_fullscreen(self, source_id):
         if self.tiler:
             self.tiler.set_property('show-source', source_id)
-
-    def __update_camera_feature(self, camera_ip: str, setting: str, value):
-        """For now, not used. Need to update feature system of aravis, to be able to set individual features
-
-        :param camera_ip:   IP of the camera 
-        :param setting:     Name of the feature
-        :param value:       Value of the feature
-
-        :return:            True if success, False if not 
-        """
-        if camera_ip not in self.source_ips:
-            return False
-        
-
-        src = self.pipeline.get_by_name(f"source-{camera_ip}")
-        if src is None:
-            return False
-        
-        if setting == "exposure_time_auto":
-            src.set_property("exposure-auto", value)
-        elif setting == "exposure_time":
-            src.set_property("exposure", value)
-        elif setting == "gain_auto":
-            src.set_property("gain-auto", value)
-        elif setting == "gain":
-            src.set_property("gain", value)
-        else:
-            return False
-        
-        return True
-    
-    def update_camera_feature(self, camera_ip: str, features: dict):
-        """Updates the features of camera using aravis.set_property("features", )
-
-        :param camera_ip:   IP of the camera 
-        :param features:    Dictionary of features and values. For example: {"exposure_time_auto": 1, "exposure_time": 1000}
-
-        :return:            True if success, False if not
-        """
-        if camera_ip not in self.active_source_ips:
-            logger.warning(f"Camera {camera_ip} not found")
-            for ip in self.active_source_ips:
-                print(f"Camera {ip}")
-            return False
-        
-    
-
-        feature_str = " ".join([f"{key}={value}" for key, value in features.items()])
-        src = self.pipeline.get_by_name(f"source-{camera_ip}")
-        if src is None:
-            return False
-        
-        print (f"Feature string: {feature_str}")
-        
-        src.set_property("features", feature_str)
-        return True
-
-
-
-    
 
 
     def _bus_message_handler(self, bus, message, loop):
@@ -219,6 +131,7 @@ class PipelineManager:
         self.streammux_config_file = self.config.get('streammux_config', None)
 
         self.max_num_sources = self.tiler_rows * self.tiler_cols
+
 
     def _create_pipeline(self):
         logger.info("Creating GStreamer Pipeline")
@@ -276,8 +189,18 @@ class PipelineManager:
             self.add_source(source_id)
 
 
-    def add_source(self, source_id : int, camera : Camera = None) -> bool:
-            
+    def add_source(self, source_id: int, camera: Camera = None) -> bool:
+        """
+        Add a source to the pipeline.
+
+        Args:
+            source_id (int): The ID of the source to add. If None, the first available source ID will be used.
+            camera (Camera, optional): The camera to add. If None, a placeholder source will be added.
+
+        Returns:
+            bool: True if the source was added successfully, False otherwise.
+        """
+
         logger.debug(f"Add Source: source_id = {source_id}, camera = {camera}")
 
         if self.pipeline is None or self.streammux is None:
@@ -295,17 +218,8 @@ class PipelineManager:
             raise IndexError("Source id out of range")
 
         # If source id is taken, find available source id
-        # i = 0
-        # while self.sources[source_id].active:
-        #     if i > MAX_NUM_SOURCES:
-        #         raise IndexError("Source id out of range")
-        #     source_id = (source_id + 1) % MAX_NUM_SOURCES
-        #     i += 1
-        #     
-        # Remove current source if current is placeholder
         if self.sources[source_id].bin is not None:
             self.remove_source(source_id)
-
 
         self.sources[source_id].active = False
         self.sources[source_id].eos = False
@@ -382,8 +296,6 @@ class PipelineManager:
             sys.stderr.write("Unable to link source bin to streammux\n")
             return False  
         
-        # if pipeline_pause_because_last_source:
-            
         sync_return = source_bin.sync_state_with_parent()
         if not sync_return:
             logger.error("Unable to sync state with parent")
@@ -397,25 +309,31 @@ class PipelineManager:
     
         return True
 
-        if pipeline.get_state(Gst.CLOCK_TIME_NONE).state == Gst.State.PLAYING:
+        if self.pipeline.get_state(Gst.CLOCK_TIME_NONE).state == Gst.State.PLAYING:
             state_return = source_bin.set_state(Gst.State.PLAYING)
             if state_return == Gst.StateChangeReturn.SUCCESS:
-                print("Source added, now playing\n")
+                logger.debug("Source added, now playing")
             elif state_return == Gst.StateChangeReturn.FAILURE:
-                print("Source added, but unable to play\n")
+                logger.debug("Source added, but unable to play")
                 return False
             elif state_return == Gst.StateChangeReturn.ASYNC:
                 state_return = self.sources[source_id].bin.get_state(Gst.CLOCK_TIME_NONE)
             elif state_return == Gst.StateChangeReturn.NO_PREROLL:
-                print("STATE CHANGE NO PREROLL\n")
+                logger.debug("STATE CHANGE NO PREROLL")
 
         return True
     
 
-    
-
-        
     def remove_source(self, source_id: int):
+        """
+        Remove a source from the pipeline.
+
+        Args:
+            source_id (int): The ID of the source to remove.
+
+        Returns:
+            bool: True if the source was successfully removed, False otherwise.
+        """
         logger.debug(f"Removing source {source_id}")
 
         if self.sources[source_id].bin is None:
@@ -464,6 +382,148 @@ class PipelineManager:
 
         #     elif state_return == Gst.StateChangeReturn.FAILURE:
         #         logger.error("Unable to play after removing source %d" % source_id)
+
+
+    def _update_features(self, camera_ip: str, features: dict):
+        feature_str = " ".join([f"{key}={value}" for key, value in features.items()])
+
+        src = self.pipeline.get_by_name(f"source-{camera_ip}")
+
+        if src is None:
+            logger.error(f"Source {camera_ip} not found")
+            return False    
+
+        src.set_property("features", feature_str)
+
+        src = self.pipeline.get_by_name(f"source-{camera_ip}")
+
+        if src is None:
+            logger.error(f"Source {camera_ip} not found")
+            return False    
+
+        src.set_property("features", feature_str)
+
+        return True
+
+
+    def set_zoom(self, camera_ip: str, zoom: float):
+        """
+        Set the zoom for a specific source. If zoom is out of bounds, it will be clamped.
+
+        :param camera_ip: The IP of the camera.
+        :type camera_ip: str
+        :param zoom: The zoom value in unit interval (0 - 1)
+        :type zoom: float
+
+        """
+        
+        if zoom < 0.0 : zoom = 0.0
+        elif zoom > 1.0: zoom = 1.0
+        
+        scaled = int(zoom * 1000)
+        features = {"Zoom": scaled}
+
+        self._update_features(camera_ip, features)
+
+
+    def set_exposure_time(self, camera_ip: str, exposure_time: float):
+        """
+        Set the exposure time for a specific camera during manual exposure.
+
+        :param camera_ip: The IP of the camera.
+        :type camera_ip: str
+        :param exposure_time: The exposure time in unit interval (0 - 1).
+        :type exposure_time: int
+        """
+
+        exposure_time = clamp(exposure_time, 0.0, 1.0)
+        scaled = int(exposure_time * 20000)
+
+        features = {"ExposureTime": scaled}
+
+        self._update_features(camera_ip, features)
+
+
+    def set_gain(self, camera_ip: str, gain: float):
+        """
+        Set the gain for a specific camera.
+
+        :param camera_ip: The IP of the camera.
+        :type camera_ip: str
+        :param gain: The gain value. (0 - 1)
+        :type gain: float
+        """
+
+        gain = clamp(gain, 0.0, 1.0)
+
+        scaled = scale(gain, to_min=0.0, to_max=48.0)
+
+        features = {"Gain": scaled}
+
+        self._update_features(camera_ip, features)
+
+
+    def set_exposure_auto(self, camera_ip: str, exposure_auto: str):
+        """
+        Set the exposure auto mode for a specific camera.
+
+        :param camera_ip: The IP of the camera.
+        :type camera_ip: str
+
+        :param exposure_auto: The exposure auto mode. This can be one of the following: "Off", "Once", "Continuous"
+        :type exposure_auto: str
+
+        :return: True if the exposure auto mode was successfully set, False otherwise.
+        :rtype: bool
+        """
+
+        if exposure_auto not in self.exposure_auto_modes:
+            logger.warning(f"Camera {camera_ip}: Unknown exposure auto mode: {exposure_auto}")
+            return False
+
+        features = {"ExposureAuto": exposure_auto,
+                    "GainAuto": exposure_auto}
+
+        if exposure_auto != "Off":
+            features["AutoExposureTimeUpperLimit"] = 20000.0
+            features["AutoExposureTimeLowerLimit"] = 1.0
+            features["AutoGainUpperLimit"] = 24.0
+            features["AutoGainLowerLimit"] = 0.0
+            features["AutoFunctionProfile"] = "MinimizeGain"
+            features["AutoFunctionROISelector"] = "ROI1"
+            features["AutoFunctionROIUseBrightness"] = True
+            
+        
+        self._update_features(camera_ip, features)
+
+
+    def set_target_brightness(self, camera_ip: str, brightness: float):
+        """
+        Set the target brightnes for a specific camera during auto exposure.
+
+        :param camera_ip: The IP of the camera.
+        :type camera_ip: str
+        :param brightness: The target brightness value in unit interval (0 - 1).
+        :type brightness: float
+        """
+        brightness = clamp(brightness, 0.0, 1.0)
+
+        
+        try:
+            index = index_dataclass(self.sources, "ip", camera_ip)
+        except:
+            return False
+
+        if self.sources[index].camera.type == "TheImagingSource":
+            features = {"ExposureAutoReference": int(brightness*255)}
+        else:
+            self.target_brightness_upper_limit = 0.25
+            self.target_brightness_lower_limit = 0.0
+
+            brightness = scale(brightness, 0.0, 1.0, self.target_brightness_lower_limit, self.target_brightness_upper_limit)
+            features = {"AutoTargetBrightness": brightness}
+
+        self._update_features(camera_ip, features)
 
 
     def _print_fps(self):

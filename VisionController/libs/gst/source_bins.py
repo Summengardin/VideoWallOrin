@@ -157,8 +157,12 @@ def create_aravis_source_bin(index: int, camera: Camera = None) -> Gst.Bin:
     if gain_auto == 'Off':
         aravissrc.set_property("gain", gain)
     aravissrc.set_property("num-arv-buffers", 50)
+    
     if camera.type == "TheImagingSource":
         aravissrc.set_property("features", "Zoom=0")
+    if camera.type == "Basler":
+        aravissrc.set_property("features", "BslCenterX BslCenterY")
+    
 
     if ip is not None:
         aravissrc.set_property("camera-name", ip)

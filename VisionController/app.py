@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 from visca_over_ip.camera import Camera as ViscaController
-from VisionController.libs.gst.pipeline_manager import PipelineManager, Source, SourceType
+from VisionController.libs.gst.pipeline_manager import PipelineManager
 from VisionController.libs.mqtt.mqtt_client_ import MQTTClient
 from VisionController.libs.utils import index_dataclass, parse_config, find_digits_in_string
 from VisionController.libs.camera import Camera
@@ -37,19 +37,18 @@ class App():
         self.command_queue = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=4)
         
-        self.topics = self._build_topics(self.mqtt_config.get('cameras'), self.mqtt_config.get('camera_subtopics'), self.mqtt_config.get('vision_controllers'), self.mqtt_config.get('vision_controller_subtopics'))
+        self.topics = self._build_mqtt_topics(self.mqtt_config.get('cameras'), self.mqtt_config.get('camera_subtopics'), self.mqtt_config.get('vision_controllers'), self.mqtt_config.get('vision_controller_subtopics'))
         self.mqtt_client = MQTTClient(self.mqtt_config['broker'], self.mqtt_config['port'], self.topics)
-        self.mqtt_client.set_on_message_callback(self._mqtt_on_message)
+        self.mqtt_client.set_on_message_callback(self._cb_mqtt_on_message)
 
         self.pipeline_manager = PipelineManager(self.pipeline_config)
 
         # self.visca = ViscaController("10.1.3.78", self.general_config.get('visca_port'))
 
         self.cameras = {}
-        self.cameras['Camera0'] = Camera(id = "Camera0", ip="test", width=1920, height=1080, framerate=60)
+        self.cameras['test'] = Camera(id = "Camera0", ip="test", width=1920, height=1080, framerate=60)
 
         self._test_zoom_dir = 1
-
 
 
     def run(self):
@@ -60,7 +59,7 @@ class App():
         time.sleep(1)
 
 
-        handler_thread = threading.Thread(target=self._command_handler)
+        handler_thread = threading.Thread(target=self._mqtt_command_handler)
         handler_thread.start()
     
 
@@ -101,9 +100,7 @@ class App():
             self._test_zoom_dir = 1
 
 
-
-
-    def _command_handler(self):
+    def _mqtt_command_handler(self):
         while True:
             msg = self.command_queue.get()
             if msg is None:
@@ -115,14 +112,14 @@ class App():
 
             if topic_split[0] == 'VisionControllers':
                 self._handle_vision_controllers_message(topic_split, payload)
-            elif topic_split[0] == 'CamObjects':
-                self._handle_cam_objects_message(topic_split, payload)
+            elif topic_split[0] == 'Cameras':
+                self._handle_cameras_message(topic_split, payload)
             
 
     def _handle_vision_controllers_message(self, topic_split, payload):
         command = topic_split[2]
         if command == 'Fullscreen':
-            self.pipeline_manager.toggle_fullscreen(int(payload))
+            self.pipeline_manager._set_fullscreen(int(payload))
         elif command in {'Width', 'Height', 'TilerRows', 'TilerColumns'}:
             self._update_pipeline_config(command, payload)
         # elif command == 'StartPipeline' and int(payload) > 0:
@@ -130,8 +127,6 @@ class App():
         #     logger.debug(f"Pipeline enabled: {self.pipeline_manager.enable_pipeline}")
         elif command.startswith('Tile'):
             self._handle_tile_command(command, topic_split, payload)
-
-
 
 
     def _handle_tile_command(self, command, topic_split, payload): 
@@ -181,18 +176,7 @@ class App():
                         logger.error(f"Could not stop releasing source {source_id}")
 
 
-    def _update_pipeline_config(self, command, payload):
-        if command == 'Width':              
-            self.pipeline_manager.width = int(payload)
-        elif command == 'Height':           
-            self.pipeline_manager.height = int(payload)
-        elif command == 'TilerRows':        
-            self.pipeline_manager.tiler_rows = int(payload)
-        elif command == 'TilerColumns':    
-            self.pipeline_manager.tiler_columns = int(payload)
-
-
-    def _handle_cam_objects_message(self, topic_split, payload):
+    def _handle_cameras_message(self, topic_split, payload):
         index = find_digits_in_string(topic_split[1])
         cam_id = topic_split[1]
         command = topic_split[2]
@@ -220,19 +204,19 @@ class App():
         elif command == 'Framerate':
             camera.framerate = float(payload)
         elif command == 'Zoom':
-            camera.zoom = int(payload)
+            camera.zoom = float (payload)
             self._run_with_timeout(self._update_camera_setting, args=(camera, "zoom", camera.zoom))
         elif command == 'Exposure':
             camera.exposure_time = float(payload)
             self._run_with_timeout(self._update_camera_setting, args=(camera, "exposure_time", camera.exposure_time))
         elif command == 'ExposureAuto':
-            camera.exposure_time_auto = int(payload)
+            camera.exposure_time_auto = float(payload)
             self._run_with_timeout(self._update_camera_setting, args=(camera, "exposure_time_auto", camera.exposure_time_auto))
         elif command == 'Gain':
             camera.gain = float(payload)
             self._run_with_timeout(self._update_camera_setting, args=(camera, "gain", camera.gain))
         elif command == 'GainAuto':
-            camera.gain_auto = int(payload)
+            camera.gain_auto = float(payload)
             self._run_with_timeout(self._update_camera_setting, args=(camera, "gain_auto", camera.gain_auto))
 
         # self._run_with_timeout(self.pipeline_manager.update_camera_features, args=(camera.ip,))
@@ -241,89 +225,83 @@ class App():
     def _update_camera_setting(self, camera: Camera, setting: str, value):
 
         if camera.type == "Basler" or camera.type == "TheImagingSource":
-            setting_dict = {}
+            
             if setting == "exposure_time_auto":
                 camera.exposure_time_auto = 'Off' if value == 0 else 'Continuous'
-                camera.gain_auto = 'Off' if value == 0 else 'Continuous'
-                setting_dict = {"ExposureAuto": camera.exposure_time_auto,
-                                "GainAuto": camera.gain_auto,
-                                "AutoFunctionROISelector": "ROI1",
-                                "AutoFunctionROIUseBrightness": True}
+                return self.pipeline_manager.set_exposure_auto(camera.ip, camera.exposure_time_auto)
                 
             elif setting == "exposure_time":
                 camera.exposure_time = value
-                if camera.exposure_time_auto == 'Off':
-                    setting_dict = {"ExposureTime": camera.exposure_time}
-                else:
-                    if camera.type == "TheImagingSource":
-                        setting_dict = {"ExposureAutoReference": int(camera.exposure_time/20000 * 255)}
-                    else:
-                        setting_dict = {"AutoTargetBrightness": camera.exposure_time/20000}
+                if camera.exposure_time_auto != 'Off':
+                    return self.pipeline_manager.set_target_brightness(camera.ip, camera.exposure_time)
+                
+                return self.pipeline_manager.set_exposure_time(camera.ip, camera.exposure_time) 
                 
             elif setting == "gain":
                 camera.gain = value
-                setting_dict = {"Gain": camera.gain}
-
-            elif setting == "gain_auto":
-                camera.gain_auto = 'Off' if value == 0 else 'Continuous'
-                # setting_dict = {"GainAuto": camera.gain_auto}
-
-            elif setting == "zoom":
-                camera.zoom = value
-                setting_dict = {"Zoom": camera.zoom}
+                if camera.exposure_time_auto != 'Off':
+                    return 
+                return self.pipeline_manager.set_gain(camera.ip, camera.gain)                
 
             elif setting == "zoom" and camera.has_zoom:
-                setting_dict["Zoom"] = camera.zoom 
-
-            return self.pipeline_manager.update_camera_feature(camera.ip, setting_dict)
-
+                camera.zoom = value
+                return self.pipeline_manager.set_zoom(camera.ip, camera.zoom)
 
         elif camera.type == "Compressed" and camera.visca_controller is not None:
 
             if setting == "exposure_time_auto":
-                if value == 0:
-                    # MANUAL
-                    value = 3
-                    camera.visca_controller.set_exposure_compensation_off()
-                elif value == 1:
-                    # AUTO
-                    value = 0
-                    camera.visca_controller.set_exposure_compensation_on()
-                camera.exposure_time_auto = value
-                modes = {0: "auto", 1: "iris priority", 2: "shutter priority", 3: "manual"}
-                camera.visca_controller.autoexposure_mode(modes[value])
+                camera.exposure_time_auto = 'auto' if value == 1 else 'manual'
+                try:
+                    if value == 1: 
+                        camera.visca_controller.set_exposure_compensation_on()
+                    else: 
+                        camera.visca_controller.set_exposure_compensation_off()
+
+                    camera.visca_controller.autoexposure_mode(camera.exposure_time_auto)
+                except Exception as e:
+                    logger.warning(f"Camera {camera.ip}: Failed to set exposure time auto: {e}")
 
             elif setting == "exposure_time":
                 try:
-                    if camera.exposure_time_auto == 3:
-                        value = int((20000-value)/20000 * 21)
+                    if camera.exposure_time_auto == 'manual':
+                        value = int((1-value)*21)
                         camera.exposure_time = value
                         camera.visca_controller.set_shutter(value)
                     else:
-                        value = int(value/20000 * 14)
+                        value = int(value * 14)
                         camera.visca_controller.set_exposure_compensation(value)
                 except Exception as e:
-                    logger.error(f"Failed to set exposure time: {e}")
+                    logger.warning(f"Camera {camera.ip}: Failed to set exposure time: {e}")
                     
             elif setting == "gain":
-                value = int(value/100 * 14 + 1)
+                value = int(value * 14 + 1)
                 self.gain = value
                 try:
                     camera.visca_controller.set_gain(value)
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Camera {camera.ip}: Failed to set gain: {e}")
 
             elif setting == "zoom":
-                value = value/1000 # percent
                 self.zoom = value
                 try:
                     camera.visca_controller.zoom_to(value)
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Camera {camera.ip}: Failed to set zoom: {e}")
             else:
                 return False
 
             return True
+
+
+    def _update_pipeline_config(self, command, payload):
+        if command == 'Width':              
+            self.pipeline_manager.width = int(payload)
+        elif command == 'Height':           
+            self.pipeline_manager.height = int(payload)
+        elif command == 'TilerRows':        
+            self.pipeline_manager.tiler_rows = int(payload)
+        elif command == 'TilerColumns':    
+            self.pipeline_manager.tiler_columns = int(payload)
 
 
     def _run_with_timeout(self, func, args=(), kwargs={}, timeout=5):
@@ -342,30 +320,13 @@ class App():
             raise e
 
 
-    def _update_camera_features(self, source: Source):
-        if source.bin is None or source.camera is None:
-            print("Camera or bin is None")
-            return
-        
-        if source.camera.type == SourceType.BAYER:
-            src = source.bin.get_by_name(f"source-{source.ip}")
-            if src is None:
-                return
-
-            self._update_camera_features_aravis(src)
-
-        elif source.camera.type == SourceType.RTSP:
-            ip = source.camera.ip
-            self._update_camera_features_rtsp(ip)
-
-
-    def _mqtt_on_message(self, client, userdata, message):
+    def _cb_mqtt_on_message(self, client, userdata, message):
         payload = message.payload.decode('utf-8')
         self.command_queue.put((message.topic, payload))
         logger.debug(f"Queued:    {message.topic}: {payload}")
 
 
-    def _build_topics(self, cameras, camera_subtopics, vision_controllers, vision_controller_subtopics):
+    def _build_mqtt_topics(self, cameras, camera_subtopics, vision_controllers, vision_controller_subtopics):
         topics = []
         for camera in cameras:
             for subtopic in camera_subtopics:

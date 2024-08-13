@@ -60,3 +60,30 @@ def float_to_fraction(float_number, max_denominator=1000) -> tuple[int, int]:
     """
     fraction = Fraction(float_number).limit_denominator(max_denominator)
     return fraction.numerator, fraction.denominator
+
+
+def scale(value, from_min = 0, from_max = 1, to_min = 0, to_max = 100):
+    """
+    Scale a value from one range to another.
+
+    :param value: The value to scale.
+    :param from_min: The minimum value of the original range.
+    :param from_max: The maximum value of the original range.
+    :param to_min: The minimum value of the target range.
+    :param to_max: The maximum value of the target range.
+    :return: The scaled value.
+    """
+    return (value - from_min) * (to_max - to_min) / (from_max - from_min) + to_min
+
+
+def clamp(value, lower, upper):
+    """
+    Clamp a value between a minimum and maximum value.
+
+    :param value: The value to clamp.
+    :param lower: The minimum value.
+    :param upper: The maximum value.
+    
+    :return: The clamped value.
+    """
+    return lower if value < lower else upper if value > upper else value

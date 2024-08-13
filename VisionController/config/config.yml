@@ -8,13 +8,13 @@ mqtt:
 
   # Following are topics. Some topics have an optional qos parameter. Default is 0.
 
-  # Cameras are defined in the form 'CamObjects/Camera0/'
+  # Cameras are defined in the form 'Cameras/Camera0/'
   cameras:  
-    - 'CamObjects/Camera1/'
-    - 'CamObjects/Camera2/'
-    - 'CamObjects/Camera3/'
-    - 'CamObjects/Camera4/'
-    - 'CamObjects/Camera5/'
+    - 'Cameras/Camera1/'
+    - 'Cameras/Camera2/'
+    - 'Cameras/Camera3/'
+    - 'Cameras/Camera4/'
+    - 'Cameras/Camera5/'
   camera_subtopics: 
     - 'IP'
     - 'Type'
