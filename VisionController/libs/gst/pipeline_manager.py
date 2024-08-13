@@ -4,6 +4,7 @@ gi.require_version('Gst', '1.0')
 gi.require_version('GLib', '2.0')
 from gi.repository import Gst, GLib
 from itertools import pairwise
+import pyds
 
 from dataclasses import dataclass 
 from enum import Enum
@@ -58,6 +59,13 @@ class PipelineManager:
         bus = self.pipeline.get_bus()
         bus.add_signal_watch()
         bus.connect("message", self._bus_message_handler, self.loop)
+
+        osd_sink_pad = self.nvosd.get_static_pad("sink")
+        if not osd_sink_pad:
+            logger.error("Unable to get sink pad from nvosd")
+        else:
+            osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
+                
 
 
         state_ret = self.pipeline.set_state(Gst.State.PLAYING)
