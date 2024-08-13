@@ -4,7 +4,6 @@ gi.require_version('Gst', '1.0')
 gi.require_version('GLib', '2.0')
 from gi.repository import Gst, GLib
 from itertools import pairwise
-import pyds
 
 from dataclasses import dataclass 
 from enum import Enum
