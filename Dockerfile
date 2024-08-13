@@ -110,6 +110,13 @@ RUN git clone https://github.com/TheImagingSource/tiscamera.git && \
     && cd ../.. && rm -rf tiscamera
 
 
+COPY /VISCA-IP-Controller /tmp/VISCA-IP-Controller
+
+WORKDIR /tmp/VISCA-IP-Controller
+
+RUN pip3 install .
+
+
 # # Install Deepstream-Yolo
 # WORKDIR /app
 # ENV CUDA_VER=12.2
@@ -131,7 +138,4 @@ ADD requirements.txt /app/
 
 RUN pip3 install -r requirements.txt
 
-COPY src /app/src
-COPY libs /app/libs
-COPY data /app/data
-COPY config /app/config
+COPY /VisionController /app/VisionController 
