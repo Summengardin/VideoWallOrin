@@ -60,14 +60,6 @@ class PipelineManager:
         bus.add_signal_watch()
         bus.connect("message", self._bus_message_handler, self.loop)
 
-        osd_sink_pad = self.nvosd.get_static_pad("sink")
-        if not osd_sink_pad:
-            logger.error("Unable to get sink pad from nvosd")
-        else:
-            osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
-                
-
-
         state_ret = self.pipeline.set_state(Gst.State.PLAYING)
 
         Gst.debug_bin_to_dot_file(self.pipeline, Gst.DebugGraphDetails.ALL , "pipeline")
