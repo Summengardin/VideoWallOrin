@@ -555,3 +555,46 @@ class PipelineManager:
         return True
     
     
+    def _osd_sink_pad_buffer_probe(self, pad, info, user_data):
+        gst_buffer = info.get_buffer()
+        if not gst_buffer:
+            logger.warning("Unable to get GstBuffer ")
+            return
+        
+        batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
+        l_frame = batch_meta.frame_meta_list
+        while l_frame is not None:
+            try:
+                frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
+            except StopIteration:
+                break
+
+            display_meta=pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+            display_meta.num_labels = 1
+            py_nvosd_text_params = display_meta.text_params[0]
+
+            py_nvosd_text_params.display_text = f"Frame Number={frame_meta.frame_num}"
+
+
+            py_nvosd_text_params.x_offset = 10
+            py_nvosd_text_params.y_offset = 12
+
+
+            py_nvosd_text_params.font_params.font_name = "Serif"
+            py_nvosd_text_params.font_params.font_size = 15
+
+            py_nvosd_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+
+            py_nvosd_text_params.set_bg_clr = 1
+
+            py_nvosd_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 1.0)
+
+            print(pyds.get_string(py_nvosd_text_params.display_text))
+            pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+
+            try:
+                l_frame=l_frame.next
+            except StopIteration:
+                break
+
+            return Gst.PadProbeReturn.OK
