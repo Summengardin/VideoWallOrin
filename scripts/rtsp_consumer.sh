@@ -1,7 +1,7 @@
 #!/bin/bash
 
 uri_default="rtsp://10.0.0.5:8554/test"
-uri_default="rtsp://192.168.0.14/stream-1.sdp"
+uri_default="rtsp://10.1.3.78/stream-1.sdp"
 
 uri="${1:-$uri_default}"
 
@@ -13,7 +13,7 @@ uri="${1:-$uri_default}"
 
 # gst-launch-1.0 -v rtspsrc location=${uri} latency=0 ! application/x-rtp, payload=96 ! rtph265depay ! queue leaky=2 max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! nvv4l2decoder enable-max-performance=1 ! nv3dsink sync=false
 
-# gst-launch-1.0 -v uridecodebin uri=${uri} ! nvvidconv ! autovideosink sync=false
+gst-launch-1.0 -v uridecodebin uri=${uri} ! nvvidconv ! autovideosink sync=false
 
 # gst-launch-1.0 -v rtspsrc location=${uri} ! rtph265depay ! nvv4l2decoder enable-max-performance=1 drop-frame-interval=0 ! nvvideoconvert ! xvimagesink sync=false
 
