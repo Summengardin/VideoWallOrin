@@ -15,7 +15,7 @@ PLACEHOLDER_PATH = "VisionController/data/assets/image_placeholder.png"
 
 
 def decodebin_child_added(child_proxy, Object, name, user_data):
-    logger.debug(f"Decodebin child added: {name}")
+    logger.debug(f"Decodebin child added: {name}, Object: {Object}")
     if name.find("decodebin") != -1:
         Object.connect("child-added", decodebin_child_added, user_data)
     if name.find("nvv4l2decoder") != -1:
@@ -26,22 +26,21 @@ def decodebin_child_added(child_proxy, Object, name, user_data):
 
 
 def cb_newpad(decodebin, pad, data):
-    global streammux
     logger.debug("In cb_newpad\n")
     caps = pad.get_current_caps()
     gststruct = caps.get_structure(0)
     gstname = gststruct.get_name()
 
     if gstname.find("video") != -1:
-        source_bin = data
-        queue = source_bin.get_by_name("src-queue")
+        source_bin, index = data
+        nvconvert = source_bin.get_by_name(f"src{index}-nvvideoconvert")
 
-        q_pad = queue.get_static_pad("sink")
+        q_pad = nvconvert.get_static_pad("sink")
         if not q_pad:
-            logger.error("Unable to get queue sink pad\n")
+            logger.error("Unable to get nvconvert sink pad\n")
 
         if not pad.link(q_pad) == Gst.PadLinkReturn.OK:
-            logger.error("Unable to link decoder src pad to queue sink pad")
+            logger.error("Unable to link decoder src pad to nvconvert sink pad")
 
 
 
@@ -61,12 +60,25 @@ def create_uridecodebin_source_bin(index: int, uri: str) -> Gst.Bin:
 
 
     uridecodebin.set_property("uri", uri)
-    uridecodebin.connect("pad-added", cb_newpad, bin)
+    uridecodebin.connect("pad-added", cb_newpad, (bin, index))
     uridecodebin.connect("child-added", decodebin_child_added, bin)
 
-    queue = Gst.ElementFactory.make("queue", f"src-queue")
+    nvvideoconvert = Gst.ElementFactory.make("nvvideoconvert", f"src{index}-nvvideoconvert")
+    if not nvvideoconvert:
+        logger.error(" Unable to create nvvideoconvert \n")
+    
+    capsfilter = Gst.ElementFactory.make("capsfilter", f"src{index}-capsfilter")
+    if not capsfilter:
+        logger.error(" Unable to create capsfilter \n")
+    caps = Gst.Caps.from_string("video/x-raw(memory:NVMM), format=NV12")
+    capsfilter.set_property("caps", caps)
+
+    
+
+    queue = Gst.ElementFactory.make("queue", f"src{index}-queue")
     if not queue:
         logger.error("Unable to create queue for uri decode bin \n")
+
 
     queue.set_property("leaky", 1)  # Dropping old buffers
     queue.set_property("max-size-buffers", 1)
@@ -74,8 +86,14 @@ def create_uridecodebin_source_bin(index: int, uri: str) -> Gst.Bin:
     queue.set_property("max-size-time", 0)
 
     bin.add(uridecodebin)
+    bin.add(nvvideoconvert)
+    bin.add(capsfilter)
     bin.add(queue)
 
+    uridecodebin.link(nvvideoconvert)
+    nvvideoconvert.link(capsfilter)
+    capsfilter.link(queue)
+    
 
     src_pad = queue.get_static_pad("src")
     bin.add_pad(Gst.GhostPad.new("src", src_pad))
@@ -157,6 +175,10 @@ def create_aravis_source_bin(index: int, camera: Camera = None) -> Gst.Bin:
     if gain_auto == 'Off':
         aravissrc.set_property("gain", gain)
     aravissrc.set_property("num-arv-buffers", 50)
+    aravissrc.set_property("packet-resend", False)
+    aravissrc.set_property("packet-delay", 0)
+    aravissrc.set_property("packet-size", 9000)
+    aravissrc.set_property("auto-packet-size", False)
     
     if camera.type == "TheImagingSource":
         aravissrc.set_property("features", "Zoom=0")
