@@ -42,6 +42,8 @@ class PipelineManager:
 
         self.last_num_rendered_frames = 0
         self.pipeline_pause_because_last_source = False
+        self.osd_frame_number = 0
+        self.osd_text = "FRAME COUNT:  "
 
         self.exposure_auto_modes = ['Off', 'Once', 'Continuous']
 
@@ -164,6 +166,13 @@ class PipelineManager:
         self.streammux.set_property("batched-push-timeout", 200000)
         self.streammux.set_property("config-file-path", self.streammux_config_file)
 
+        self.nvosd.set_property("process-mode", 2)
+        # self.nvosd.set_property("display-text", True)
+        # self.nvosd.set_property("display-clock", True)
+        # self.nvosd.set_property("clock-font-size", 30)
+        # self.nvosd.set_property("x-clock-offset", 100)
+        # self.nvosd.set_property("y-clock-offset", 100)
+
         self.tiler.set_property("rows", self.tiler_rows)
         self.tiler.set_property("columns", self.tiler_cols)
         self.tiler.set_property("width", self.width)
@@ -227,8 +236,6 @@ class PipelineManager:
 
 
 
-
-
         if camera is not None:
             self.sources[source_id].ip = camera.ip
 
@@ -280,7 +287,7 @@ class PipelineManager:
 
 
         if not source_bin:
-            sys.stderr.write("Unable to create source bin\n")
+            logger.error(f"Unable to create source bin fort source {source_id}\n")
             return False
         
 
@@ -301,7 +308,9 @@ class PipelineManager:
         if src_pad.link(sink_pad) != Gst.PadLinkReturn.OK:
             sys.stderr.write("Unable to link source bin to streammux\n")
             return False  
-        
+
+
+
         sync_return = source_bin.sync_state_with_parent()
         if not sync_return:
             logger.error("Unable to sync state with parent")
@@ -383,11 +392,56 @@ class PipelineManager:
             self.sources[source_id].active = False
             self.sources[source_id].bin = None
 
-        
-    
-    
+        return True
 
-    def set_exposure_time_source(self, source_id: int, exposure_time: float):
+        # self.sources[source_id] = Source()
+
+        # if self.num_sources > 0:
+        #     state_return = self.pipeline.set_state(Gst.State.PLAYING)
+
+        #     if state_return == Gst.StateChangeReturn.SUCCESS:
+        #         logger.debug("Source removed, now playing\n")  
+
+        #     elif state_return == Gst.StateChangeReturn.FAILURE:
+        #         logger.error("Unable to play after removing source %d" % source_id)
+
+
+    def _update_features(self, camera_ip: str, features: dict):
+        feature_str = " ".join([f"{key}={value}" for key, value in features.items()])
+
+
+        src = self.pipeline.get_by_name(f"source-{camera_ip}")
+
+        if src is None:
+            logger.debug(f"Source {camera_ip} not found, cannot update features")
+            return False    
+
+        src.set_property("features", feature_str)
+
+        return True
+
+
+    def set_zoom(self, camera_ip: str, zoom: float):
+        """
+        Set the zoom for a specific source. If zoom is out of bounds, it will be clamped.
+
+        :param camera_ip: The IP of the camera.
+        :type camera_ip: str
+        :param zoom: The zoom value in unit interval (0 - 1)
+        :type zoom: float
+
+        """
+        
+        if zoom < 0.0 : zoom = 0.0
+        elif zoom > 1.0: zoom = 1.0
+        
+        scaled = int(zoom * 1000)
+        features = {"Zoom": scaled}
+
+        self._update_features(camera_ip, features)
+
+
+    def set_exposure_time(self, camera_ip: str, exposure_time: float):
         """
         Set the exposure time for a specific source during manual exposure.
 
@@ -554,6 +608,7 @@ class PipelineManager:
 
         return True
     
+
     
     def _osd_sink_pad_buffer_probe(self, pad, info, user_data):
         gst_buffer = info.get_buffer()
@@ -561,6 +616,11 @@ class PipelineManager:
             logger.warning("Unable to get GstBuffer ")
             return
         
+        self.osd_frame_number += 1
+
+        if self.osd_frame_number % 60 == 0:
+            self.osd_text = f"Frame numbers: {self.osd_frame_number}"
+            
         batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
         l_frame = batch_meta.frame_meta_list
         while l_frame is not None:
@@ -573,7 +633,7 @@ class PipelineManager:
             display_meta.num_labels = 1
             py_nvosd_text_params = display_meta.text_params[0]
 
-            py_nvosd_text_params.display_text = f"Frame Number={frame_meta.frame_num}"
+            py_nvosd_text_params.display_text = "Txt" +self.osd_text
 
 
             py_nvosd_text_params.x_offset = 10
@@ -589,7 +649,8 @@ class PipelineManager:
 
             py_nvosd_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 1.0)
 
-            print(pyds.get_string(py_nvosd_text_params.display_text))
+            # print(f"Frame Number={frame_meta.frame_num}, No in batch={batch_meta.num_frames_in_batch}")
+
             pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
 
             try:
@@ -597,4 +658,4 @@ class PipelineManager:
             except StopIteration:
                 break
 
-            return Gst.PadProbeReturn.OK
+        return Gst.PadProbeReturn.OK
