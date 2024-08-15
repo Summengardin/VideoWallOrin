@@ -304,7 +304,7 @@ class App():
             self.pipeline_manager.tiler_columns = int(payload)
 
 
-    def _run_with_timeout(self, func, args=(), kwargs={}, timeout=5):
+    def _run_with_timeout(self, func, args=(), kwargs={}, timeout=20):
         """Runs a function asynchronously with a timeout."""
         logger.debug(f"Running {func.__name__} with timeout {timeout}")
         future = self.executor.submit(func, *args, **kwargs)
@@ -317,7 +317,8 @@ class App():
             return False
         except Exception as e:
             logger.error(f"Function {func.__name__} raised an exception: {e}")
-            raise e
+
+            # raise e
 
 
     def _cb_mqtt_on_message(self, client, userdata, message):
