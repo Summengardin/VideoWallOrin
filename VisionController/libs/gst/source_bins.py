@@ -73,12 +73,9 @@ def create_uridecodebin_source_bin(index: int, uri: str) -> Gst.Bin:
     caps = Gst.Caps.from_string("video/x-raw(memory:NVMM), format=NV12")
     capsfilter.set_property("caps", caps)
 
-    
-
     queue = Gst.ElementFactory.make("queue", f"src{index}-queue")
     if not queue:
         logger.error("Unable to create queue for uri decode bin \n")
-
 
     queue.set_property("leaky", 1)  # Dropping old buffers
     queue.set_property("max-size-buffers", 1)

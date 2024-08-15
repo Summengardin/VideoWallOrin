@@ -42,6 +42,8 @@ class PipelineManager:
 
         self.last_num_rendered_frames = 0
         self.pipeline_pause_because_last_source = False
+        self.osd_frame_number = 0
+        self.osd_text = "FRAME COUNT:  "
 
         self.exposure_auto_modes = ['Off', 'Once', 'Continuous']
 
@@ -58,14 +60,13 @@ class PipelineManager:
 
         bus = self.pipeline.get_bus()
         bus.add_signal_watch()
-        bus.connect("message", self._bus_message_handler, self.loop)
+        bus.connect("message", self._bus_message_handler, self.loop)               
 
-        osd_sink_pad = self.nvosd.get_static_pad("sink")
-        if not osd_sink_pad:
-            logger.error("Unable to get sink pad from nvosd")
-        else:
-            osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
-                
+        # osd_sink_pad = self.nvosd.get_static_pad("sink")
+        # if not osd_sink_pad:
+        #     logger.warning("Unable to get Tiler sink pad")
+        # else:            
+        #     osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
 
 
         state_ret = self.pipeline.set_state(Gst.State.PLAYING)
@@ -172,6 +173,13 @@ class PipelineManager:
         self.streammux.set_property("batched-push-timeout", 200000)
         self.streammux.set_property("config-file-path", self.streammux_config_file)
 
+        self.nvosd.set_property("process-mode", 2)
+        # self.nvosd.set_property("display-text", True)
+        # self.nvosd.set_property("display-clock", True)
+        # self.nvosd.set_property("clock-font-size", 30)
+        # self.nvosd.set_property("x-clock-offset", 100)
+        # self.nvosd.set_property("y-clock-offset", 100)
+
         self.tiler.set_property("rows", self.tiler_rows)
         self.tiler.set_property("columns", self.tiler_cols)
         self.tiler.set_property("width", self.width)
@@ -235,8 +243,6 @@ class PipelineManager:
 
 
 
-
-
         if camera is not None:
             self.sources[source_id].ip = camera.ip
 
@@ -255,8 +261,17 @@ class PipelineManager:
                 # source_bin = create_camgrabber_source_bin(source_id, camera.ip)
                 self.sources[source_id].active = True
                 self.sources[source_id].name = camera.ip
-                self.sources[source_id].type = SourceType.BAYER       
-        
+                self.sources[source_id].type = SourceType.BAYER   
+
+                # try:
+                #     aravis_element = source_bin.get_by_name(f"source-{camera.ip}")
+                #     camera = aravis_element.get_property("camera")
+                #     self.sources[source_id].arv_camera = camera
+                #     print(self.sources[source_id].arv_camera)
+
+                # except Exception as e:  
+                #     logger.warning(f"Failed to get arv camera of {camera.ip}: {e}")
+
             elif camera.type == "Compressed":
                 logger.debug(f"Adding {camera.type} camera {camera.ip} at source {source_id}")
                 if camera.uri is None:
@@ -282,7 +297,7 @@ class PipelineManager:
 
 
         if not source_bin:
-            sys.stderr.write("Unable to create source bin\n")
+            logger.error(f"Unable to create source bin fort source {source_id}\n")
             return False
         
 
@@ -303,7 +318,9 @@ class PipelineManager:
         if src_pad.link(sink_pad) != Gst.PadLinkReturn.OK:
             sys.stderr.write("Unable to link source bin to streammux\n")
             return False  
-        
+
+
+
         sync_return = source_bin.sync_state_with_parent()
         if not sync_return:
             logger.error("Unable to sync state with parent")
@@ -378,7 +395,7 @@ class PipelineManager:
             self.sources[source_id].active = False
             self.sources[source_id].bin = None
 
-        
+        return True
 
         # self.sources[source_id] = Source()
 
@@ -395,18 +412,11 @@ class PipelineManager:
     def _update_features(self, camera_ip: str, features: dict):
         feature_str = " ".join([f"{key}={value}" for key, value in features.items()])
 
-        src = self.pipeline.get_by_name(f"source-{camera_ip}")
-
-        if src is None:
-            logger.error(f"Source {camera_ip} not found")
-            return False    
-
-        src.set_property("features", feature_str)
 
         src = self.pipeline.get_by_name(f"source-{camera_ip}")
 
         if src is None:
-            logger.error(f"Source {camera_ip} not found")
+            logger.debug(f"Source {camera_ip} not found, cannot update features")
             return False    
 
         src.set_property("features", feature_str)
@@ -554,6 +564,7 @@ class PipelineManager:
 
         return True
     
+
     
     def _osd_sink_pad_buffer_probe(self, pad, info, user_data):
         gst_buffer = info.get_buffer()
@@ -561,6 +572,11 @@ class PipelineManager:
             logger.warning("Unable to get GstBuffer ")
             return
         
+        self.osd_frame_number += 1
+
+        if self.osd_frame_number % 60 == 0:
+            self.osd_text = f"Frame numbers: {self.osd_frame_number}"
+            
         batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
         l_frame = batch_meta.frame_meta_list
         while l_frame is not None:
@@ -573,7 +589,7 @@ class PipelineManager:
             display_meta.num_labels = 1
             py_nvosd_text_params = display_meta.text_params[0]
 
-            py_nvosd_text_params.display_text = f"Frame Number={frame_meta.frame_num}"
+            py_nvosd_text_params.display_text = "Txt" +self.osd_text
 
 
             py_nvosd_text_params.x_offset = 10
@@ -589,7 +605,8 @@ class PipelineManager:
 
             py_nvosd_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 1.0)
 
-            print(pyds.get_string(py_nvosd_text_params.display_text))
+            # print(f"Frame Number={frame_meta.frame_num}, No in batch={batch_meta.num_frames_in_batch}")
+
             pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
 
             try:
@@ -597,4 +614,4 @@ class PipelineManager:
             except StopIteration:
                 break
 
-            return Gst.PadProbeReturn.OK
+        return Gst.PadProbeReturn.OK
