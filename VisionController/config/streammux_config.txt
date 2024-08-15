@@ -6,11 +6,11 @@ batch-size= 4
 
 max-fps-control=1
 
-overall-max-fps-n=60
+overall-max-fps-n=120
 
 overall-max-fps-d=1
 
-overall-min-fps-n=60
+overall-min-fps-n=120
 
 overall-min-fps-d=1
 
