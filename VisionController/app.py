@@ -290,6 +290,22 @@ class App():
             camera.format = payload
         elif command == 'Framerate':
             camera.framerate = float(payload)
+        elif command == 'Zoom':
+            camera.zoom = float (payload)
+            self._run_with_timeout(self._update_camera_setting, args=(camera, "zoom", camera.zoom))
+        elif command == 'Exposure':
+            camera.exposure_time = float(payload)
+            self._run_with_timeout(self._update_camera_setting, args=(camera, "exposure_time", camera.exposure_time))
+        elif command == 'ExposureAuto':
+            camera.exposure_time_auto = int(payload)
+            self._run_with_timeout(self._update_camera_setting, args=(camera, "exposure_time_auto", camera.exposure_time_auto))
+        elif command == 'Gain':
+            camera.gain = float(payload)
+            self._run_with_timeout(self._update_camera_setting, args=(camera, "gain", camera.gain))
+        elif command == 'GainAuto':
+            camera.gain_auto = float(payload)
+            self._run_with_timeout(self._update_camera_setting, args=(camera, "gain_auto", camera.gain_auto))
+
         # self._run_with_timeout(self.pipeline_manager.update_camera_features, args=(camera.ip,))
 
 

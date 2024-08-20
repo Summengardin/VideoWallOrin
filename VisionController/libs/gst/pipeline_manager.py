@@ -63,12 +63,7 @@ class PipelineManager:
         bus.add_signal_watch()
         bus.connect("message", self._bus_message_handler, self.loop)               
 
-        # osd_sink_pad = self.nvosd.get_static_pad("sink")
-        # if not osd_sink_pad:
-        #     logger.warning("Unable to get Tiler sink pad")
-        # else:            
-        #     osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
-
+       
 
         state_ret = self.pipeline.set_state(Gst.State.PLAYING)
 
