@@ -280,7 +280,7 @@ class App():
             camera.has_zoom = payload != 'Basler'
 
             if camera.type == "Compressed":
-                camera.set_controller(ViscaController(camera.ip, 1000))
+                self._run_with_timeout(camera.set_controller, args=(ViscaController(camera.ip, 1000),))
 
         elif command == 'Width':
             camera.width = int(payload)
