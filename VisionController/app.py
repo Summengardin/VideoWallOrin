@@ -193,7 +193,7 @@ class App():
             camera.has_zoom = payload != 'Basler'
 
             if camera.type == "Compressed":
-                camera.set_controller(ViscaController(camera.ip, 1000))
+                self._run_with_timeout(camera.set_controller, args=(ViscaController(camera.ip, 1000),))
 
         elif command == 'Width':
             camera.width = int(payload)
@@ -210,7 +210,7 @@ class App():
             camera.exposure_time = float(payload)
             self._run_with_timeout(self._update_camera_setting, args=(camera, "exposure_time", camera.exposure_time))
         elif command == 'ExposureAuto':
-            camera.exposure_time_auto = float(payload)
+            camera.exposure_time_auto = int(payload)
             self._run_with_timeout(self._update_camera_setting, args=(camera, "exposure_time_auto", camera.exposure_time_auto))
         elif command == 'Gain':
             camera.gain = float(payload)

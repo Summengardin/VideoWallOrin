@@ -53,8 +53,9 @@ class PipelineManager:
         self._create_pipeline()
         self._create_elements()
         self._link_elements()   
-
+        self._add_probes()
         self._fill_with_placeholders()
+
 
         self.loop = GLib.MainLoop()
 
@@ -62,12 +63,7 @@ class PipelineManager:
         bus.add_signal_watch()
         bus.connect("message", self._bus_message_handler, self.loop)               
 
-        # osd_sink_pad = self.nvosd.get_static_pad("sink")
-        # if not osd_sink_pad:
-        #     logger.warning("Unable to get Tiler sink pad")
-        # else:            
-        #     osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
-
+       
 
         state_ret = self.pipeline.set_state(Gst.State.PLAYING)
 
@@ -173,7 +169,7 @@ class PipelineManager:
         self.streammux.set_property("batched-push-timeout", 200000)
         self.streammux.set_property("config-file-path", self.streammux_config_file)
 
-        self.nvosd.set_property("process-mode", 2)
+        self.nvosd.set_property("process-mode", 1)
         # self.nvosd.set_property("display-text", True)
         # self.nvosd.set_property("display-clock", True)
         # self.nvosd.set_property("clock-font-size", 30)
@@ -196,6 +192,14 @@ class PipelineManager:
         for pair in pairwise(self.elements):
             if not pair[0].link(pair[1]):
                 logger.error(f"Elements {pair[0].get_name()} and {pair[1].get_name()} couldn't be linked")
+
+
+    def _add_probes(self):
+        osd_sink_pad = self.sink.get_static_pad("sink")
+        if not osd_sink_pad:
+            logger.warning("Unable to get NVOSD sink pad")
+        else:            
+            osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
 
 
     def _fill_with_placeholders(self):
@@ -576,6 +580,8 @@ class PipelineManager:
 
         if self.osd_frame_number % 60 == 0:
             self.osd_text = f"Frame numbers: {self.osd_frame_number}"
+
+        batch_text = ""
             
         batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
         l_frame = batch_meta.frame_meta_list
@@ -585,11 +591,16 @@ class PipelineManager:
             except StopIteration:
                 break
 
+            pad_index = frame_meta.pad_index
+            ntp_ts = frame_meta.ntp_timestamp
+
             display_meta=pyds.nvds_acquire_display_meta_from_pool(batch_meta)
             display_meta.num_labels = 1
             py_nvosd_text_params = display_meta.text_params[0]
 
-            py_nvosd_text_params.display_text = "Txt" +self.osd_text
+            text = f"Source {pad_index} : {self.osd_frame_number}"
+
+            py_nvosd_text_params.display_text = text
 
 
             py_nvosd_text_params.x_offset = 10
@@ -597,7 +608,7 @@ class PipelineManager:
 
 
             py_nvosd_text_params.font_params.font_name = "Serif"
-            py_nvosd_text_params.font_params.font_size = 15
+            py_nvosd_text_params.font_params.font_size = 45
 
             py_nvosd_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
 
@@ -605,7 +616,7 @@ class PipelineManager:
 
             py_nvosd_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 1.0)
 
-            # print(f"Frame Number={frame_meta.frame_num}, No in batch={batch_meta.num_frames_in_batch}")
+            # print(pyds.get_string(py_nvosd_text_params.display_text))
 
             pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
 
