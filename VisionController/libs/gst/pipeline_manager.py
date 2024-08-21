@@ -495,7 +495,20 @@ class PipelineManager:
 
 
     def set_gain_source(self, source_id: int, gain: float):
-        pass
+        """
+        Set the gain for a specific source during manual exposure.
+        
+        :param source_id: The ID of the source.
+        :type source_id: int
+        
+        :param gain: The gain in unit interval (0 - 1).
+        :type gain: int
+        """
+
+        gain = clamp(gain, 0.0, 1.0)
+        scaled = gain * 24
+
+        self.sources[source_id].arv_camera.set_float("Gain", scaled)
 
     def set_exposure_auto_source(self, source_id: int, exposure_auto: str):
         """
@@ -508,9 +521,6 @@ class PipelineManager:
         """
 
         arv_camera = self.sources[source_id].arv_camera
-
-        # arv_camera.set_exposure_mode(Aravis.ExposureMode.TIMED)
-        # arv_camera.set_exposure_time_auto(Aravis.Auto.from_string(exposure_auto))
 
         arv_camera.set_string("ExposureAuto", exposure_auto)
         arv_camera.set_string("GainAuto", exposure_auto)
@@ -529,15 +539,13 @@ class PipelineManager:
                 arv_camera.set_float("ExposureAutoLowerLimit", 1.0)
                 arv_camera.set_float("GainAutoUpperLimit", 24.0)
                 arv_camera.set_float("GainAutoLowerLimit", 0.0)
-                # arv_camera.set_string("AutoFunctionProfile", "MinimizeGain")
-                # arv_camera.set_string("AutoFunctionsROIPreset", "Center 50%")
                 arv_camera.set_boolean("AutoFunctionsROIEnable", True)
 
 
 
     def set_target_brightness_source(self, source_id: int, target_brightness: float):
         """
-        Set the target brightness for a specific source during manual brightness.
+        Set the target brightness for a specific source during auto exposure.
 
         :param source_id: The ID of the source.
         :type source_id: int
