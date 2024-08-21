@@ -268,8 +268,6 @@ class PipelineManager:
                 arv_camera = source_bin.get_by_name(f"source-{camera.ip}").get_property("camera")
                 self.sources[source_id].arv_camera = arv_camera
 
-                print(f"\nEXPOSURE TIME BOUNDS: {self.get_exposure_bounds(source_id)}\n")
-
         
             elif camera.type == "Compressed":
                 logger.debug(f"Adding {camera.type} camera {camera.ip} at source {source_id}")
@@ -428,6 +426,23 @@ class PipelineManager:
         src.set_property("features", feature_str)
 
         return True
+    
+
+    def get_exposure_bounds(self, source_id: int) -> Tuple[float, float]:
+        """
+        Get the exposure bounds for a specific source.
+
+        :param source_id: The ID of the source.
+        :type source_id: int
+
+        :return: The exposure bounds in unit interval (0 - 1).
+        :rtype: Tuple[float, float]
+
+        """
+
+        return self.sources[source_id].arv_camera.get_float_bounds("ExposureTime")
+    
+
 
 
     def set_zoom(self, camera_ip: str, zoom: float):
@@ -459,7 +474,7 @@ class PipelineManager:
         :param exposure_time: The exposure time in unit interval (0 - 1).
         :type exposure_time: int
         """
-
+        
         exposure_time = clamp(exposure_time, 0.0, 1.0)
         lower = self.sources[source_id].arv_camera.get_float_bounds("ExposureTime")[0]
         scaled = int(exposure_time * 20000) + lower
