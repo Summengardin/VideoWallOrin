@@ -17,6 +17,7 @@ from VisionController.libs.gst.pipeline_manager import PipelineManager
 from VisionController.libs.mqtt.mqtt_client_ import MQTTClient
 from VisionController.libs.utils import index_dataclass, parse_config, find_digits_in_string
 from VisionController.libs.camera import Camera
+from VisionController.libs.types import Source, SourceType
 
 
 Gst.init(None)
@@ -137,43 +138,131 @@ class App():
         source_id = index - 1
         subcommand = topic_split[3]
 
-        if index is not None:
-            if subcommand == 'Source':
+
+        if subcommand == 'Source':
+            try:
+                camera_index = find_digits_in_string(payload)
+            except ValueError:
+                camera_index = 0
+            # self.pipeline_manager.sources[source_id].camera = self.pipeline_manager.cameras[camera_index]
+            self.pipeline_manager.sources[source_id].cam_id = payload
+        elif subcommand == 'Enable':
+            self.pipeline_manager.sources[source_id].enabled = int(payload) > 0
+            if int(payload) > 0:
+            
                 try:
-                    camera_index = find_digits_in_string(payload)
-                except ValueError:
-                    camera_index = 0
-                # self.pipeline_manager.sources[source_id].camera = self.pipeline_manager.cameras[camera_index]
-                self.pipeline_manager.sources[source_id].cam_id = payload
-            elif subcommand == 'Enable':
-                self.pipeline_manager.sources[source_id].enabled = int(payload) > 0
-                if int(payload) > 0:
+                    cam_id = self.pipeline_manager.sources[source_id].cam_id
+                    
+                    success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,), kwargs={'camera': self.cameras[cam_id]})
+                    if not success:
+                        logger.error(f"Adding source {source_id} timed out")
+                        success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
+                        if not success:
+                            logger.error(f"Adding placeholder source {source_id} timed out")
+                except Exception as e:
+                    logger.error(f"Could not add source {source_id}. Error: {e}")
+                    success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
+                    if not success:
+                        logger.error(f"Adding placeholder source {source_id} timed out")
+                    
+            else:
+                try:
+                    success = self._run_with_timeout(self.pipeline_manager.remove_source, args=(source_id,))
+                    if not success:
+                        logger.error(f"Removing source {source_id} timed out")
+                    success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
+                    if not success:
+                        logger.error(f"Adding placeholder source {source_id} timed out")
+                except Exception as e:
+                    logger.error(f"Could not stop releasing source {source_id}")
+
+        elif subcommand == 'Zoom':
+            self._run_with_timeout(self._update_source_feature, args=(source_id, 'zoom'), kwargs={'value': float(payload)})
+
+        elif subcommand == 'Exposure':
+            self._run_with_timeout(self._update_source_feature, args=(source_id, 'exposure_time'), kwargs={'value': float(payload)})
+
+        elif subcommand == 'ExposureAuto':
+            self._run_with_timeout(self._update_source_feature, args=(source_id, 'exposure_time_auto'), kwargs={'value': int(payload)})
+
+        elif subcommand == 'Gain':
+            self._run_with_timeout(self._update_source_feature, args=(source_id, 'gain'), kwargs={'value': float(payload)})
+
+    def _update_source_feature(self, source_id: int, feature, value):
+        source = self.pipeline_manager.sources[source_id]
+        print(f"Updating source {source.id} feature {feature} to {value}")
+        print(f"Source type: {source.type}")
+
+        if source.type == SourceType.BAYER:
+            if feature == "exposure_time_auto":
                 
-                    try:
-                        cam_id = self.pipeline_manager.sources[source_id].cam_id
-                        
-                        success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,), kwargs={'camera': self.cameras[cam_id]})
-                        if not success:
-                            logger.error(f"Adding source {source_id} timed out")
-                            success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
-                            if not success:
-                                logger.error(f"Adding placeholder source {source_id} timed out")
-                    except Exception as e:
-                        logger.error(f"Could not add source {source_id}. Error: {e}")
-                        success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
-                        if not success:
-                            logger.error(f"Adding placeholder source {source_id} timed out")
-                        
-                else:
-                    try:
-                        success = self._run_with_timeout(self.pipeline_manager.remove_source, args=(source_id,))
-                        if not success:
-                            logger.error(f"Removing source {source_id} timed out")
-                        success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
-                        if not success:
-                            logger.error(f"Adding placeholder source {source_id} timed out")
-                    except Exception as e:
-                        logger.error(f"Could not stop releasing source {source_id}")
+                source.camera.exposure_time_auto = 'Off' if value == 0 else 'Continuous'
+                return self.pipeline_manager.set_exposure_auto_source(source.id, source.camera.exposure_time_auto)
+
+
+            elif feature == "exposure_time":
+                source.camera.exposure_time = value
+                if source.camera.exposure_time_auto != 'Off':
+                    return self.pipeline_manager.set_target_brightness_source(source.id, source.camera.exposure_time)
+                
+                return self.pipeline_manager.set_exposure_time_source(source.id, source.camera.exposure_time) 
+                
+            elif feature == "gain":
+                source.camera.gain = value
+                if source.camera.exposure_time_auto != 'Off':
+                    return 
+                return self.pipeline_manager.set_gain_source(source.id, source.camera.gain)                
+
+            elif feature == "zoom" and source.camera.has_zoom:
+                source.camera.zoom = value
+                return self.pipeline_manager.set_zoom_source(source.id, source.camera.zoom)
+
+        if source.type == SourceType.RTSP and source.camera.visca_controller is not None:
+
+            if feature == "exposure_time_auto":
+                source.camera.exposure_time_auto = 'auto' if value == 1 else 'manual'
+                try:
+                    if value == 1: 
+                        source.camera.visca_controller.set_exposure_compensation_on()
+                    else: 
+                        source.camera.visca_controller.set_exposure_compensation_off()
+
+                    source.camera.visca_controller.autoexposure_mode(source.camera.exposure_time_auto)
+
+
+                except Exception as e:
+                    logger.warning(f"Camera {source.camera.ip}: Failed to set exposure time auto: {e}")
+
+            elif feature == "exposure_time":
+                try:
+                    if source.camera.exposure_time_auto == 'manual':
+                        value = int((1-value)*21)
+                        source.camera.exposure_time = value
+                        source.camera.visca_controller.set_shutter(value)
+                    else:
+                        value = int(value * 14)
+                        source.camera.visca_controller.set_exposure_compensation(value)
+                except Exception as e:
+                    logger.warning(f"Camera {source.camera.ip}: Failed to set exposure time: {e}")
+                    
+            elif feature == "gain":
+                value = int(value * 14 + 1)
+                self.gain = value
+                try:
+                    source.camera.visca_controller.set_gain(value)
+                except Exception as e:
+                    logger.warning(f"Camera {source.camera.ip}: Failed to set gain: {e}")
+
+            elif feature == "zoom":
+                self.zoom = value
+                try:
+                    source.camera.visca_controller.zoom_to(value)
+                except Exception as e:
+                    logger.warning(f"Camera {source.camera.ip}: Failed to set zoom: {e}")
+            else:
+                return False
+
+            return True
 
 
     def _handle_cameras_message(self, topic_split, payload):
@@ -205,24 +294,27 @@ class App():
             camera.framerate = float(payload)
         elif command == 'Zoom':
             camera.zoom = float (payload)
-            self._run_with_timeout(self._update_camera_setting, args=(camera, "zoom", camera.zoom))
+            self._run_with_timeout(self._update_camera_feature, args=(camera, "zoom", camera.zoom))
         elif command == 'Exposure':
             camera.exposure_time = float(payload)
-            self._run_with_timeout(self._update_camera_setting, args=(camera, "exposure_time", camera.exposure_time))
+            self._run_with_timeout(self._update_camera_feature, args=(camera, "exposure_time", camera.exposure_time))
         elif command == 'ExposureAuto':
             camera.exposure_time_auto = int(payload)
             self._run_with_timeout(self._update_camera_setting, args=(camera, "exposure_time_auto", camera.exposure_time_auto))
         elif command == 'Gain':
             camera.gain = float(payload)
-            self._run_with_timeout(self._update_camera_setting, args=(camera, "gain", camera.gain))
+            self._run_with_timeout(self._update_camera_feature, args=(camera, "gain", camera.gain))
         elif command == 'GainAuto':
             camera.gain_auto = float(payload)
-            self._run_with_timeout(self._update_camera_setting, args=(camera, "gain_auto", camera.gain_auto))
+            self._run_with_timeout(self._update_camera_feature, args=(camera, "gain_auto", camera.gain_auto))
 
         # self._run_with_timeout(self.pipeline_manager.update_camera_features, args=(camera.ip,))
 
 
-    def _update_camera_setting(self, camera: Camera, setting: str, value):
+
+
+
+    def _update_camera_feature(self, camera: Camera, setting: str, value):
 
         if camera.type == "Basler" or camera.type == "TheImagingSource":
             
