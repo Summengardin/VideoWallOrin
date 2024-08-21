@@ -3,7 +3,8 @@ from enum import Enum
 
 import gi
 gi.require_version('Gst', '1.0')
-from gi.repository import Gst
+gi.require_version('Aravis', '0.8')
+from gi.repository import Gst, Aravis
 
 
 from .camera import Camera
@@ -27,6 +28,7 @@ class Source:
     bin: Gst.Bin = None
     eos: bool = False
     camera: Camera = None
+    arv_camera: Aravis.Camera = None
     enabled: bool = False
 
 

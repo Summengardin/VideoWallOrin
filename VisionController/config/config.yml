@@ -15,6 +15,7 @@ mqtt:
     - 'Cameras/Camera3/'
     - 'Cameras/Camera4/'
     - 'Cameras/Camera5/'
+    - 'Cameras/Camera6/'
   camera_subtopics: 
     - 'IP'
     - 'Type'
@@ -44,13 +45,28 @@ mqtt:
     # - 'Tile00/Enable'
     - 'Tile01/Source'
     - 'Tile01/Enable'
+    - 'Tile01/Exposure'
+    - 'Tile01/ExposureAuto'
+    - 'Tile01/Gain'
+    - 'Tile01/Zoom'
     - 'Tile02/Source'
     - 'Tile02/Enable'
+    - 'Tile02/Exposure'
+    - 'Tile02/ExposureAuto'
+    - 'Tile02/Gain'
+    - 'Tile02/Zoom'
     - 'Tile03/Source'
     - 'Tile03/Enable'
+    - 'Tile03/Exposure'
+    - 'Tile03/ExposureAuto'
+    - 'Tile03/Gain'
+    - 'Tile03/Zoom'
     - 'Tile04/Source'
     - 'Tile04/Enable'
-
+    - 'Tile04/Exposure'
+    - 'Tile04/ExposureAuto'
+    - 'Tile04/Gain'
+    - 'Tile04/Zoom'
 
 pipeline:
   tiler_rows: 2
