@@ -7,7 +7,7 @@ hold = threading.Event()
 
 WSDL = '/home/seaonics/.local/lib/python3.10/site-packages/wsdl'
 
-cam = ONVIFCamera('10.1.3.78', 80, 'admin', 'admin', wsdl_dir=WSDL) #, wsdl_dir='http://www.onvif.org/ver20/imaging/wsdl')
+cam = ONVIFCamera('10.1.3.78', 80, 'admin', 'admin', wsdl_dir=WSDL)
 
 media = cam.create_media_service()
 # Get target profile
