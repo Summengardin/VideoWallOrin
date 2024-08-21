@@ -190,8 +190,6 @@ class App():
 
     def _update_source_feature(self, source_id: int, feature, value):
         source = self.pipeline_manager.sources[source_id]
-        print(f"Updating source {source.id} feature {feature} to {value}")
-        print(f"Source type: {source.type}")
 
         if source.type == SourceType.BAYER:
             if feature == "exposure_time_auto":
