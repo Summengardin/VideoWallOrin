@@ -467,6 +467,24 @@ class PipelineManager:
 
     def set_exposure_time(self, camera_ip: str, exposure_time: float):
         """
+        Set the exposure time for a specific camera during manual exposure.
+
+        :param camera_ip: The IP of the camera.
+        :type camera_ip: str
+        :param exposure_time: The exposure time in unit interval (0 - 1).
+        :type exposure_time: int
+        """
+        
+        exposure_time = clamp(exposure_time, 0.0, 1.0)
+        scaled = int(exposure_time * 20000)
+
+        features = {"ExposureTime": scaled}
+
+        self._update_features(camera_ip, features)
+    
+
+    def set_exposure_time_source(self, source_id: int, exposure_time: float):
+        """
         Set the exposure time for a specific source during manual exposure.
 
         :param source_id: The ID of the source.
