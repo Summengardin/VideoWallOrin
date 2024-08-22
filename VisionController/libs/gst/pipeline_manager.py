@@ -44,7 +44,35 @@ class PipelineManager:
         self.last_num_rendered_frames = 0
         self.pipeline_pause_because_last_source = False
         self.osd_frame_number = 0
-        self.osd_text = "FRAME COUNT:  "
+        self.osd_text_dict = [
+            {
+                "text": "<Name of source>  <States>",
+                "x": 0,
+                "y": 200,
+                "font_size": 18,
+            },
+            {
+                "text": "Load: ",
+                "x": 1920//2,
+                "y": 200,
+                "font_size": 18,
+            },
+            {
+                "text": "<User set>",
+                "x": 1920 - 200,
+                "y": 200,
+                "font_size": 18,
+            },
+
+            {
+                "text": "<New setting> :  <Value>",
+                "x": 1920//2,
+                "y": 1080//2,
+                "font_size": 48,
+            },
+
+        ]
+        self.fps = 0
 
         self.exposure_auto_modes = ['Off', 'Once', 'Continuous']
 
@@ -156,7 +184,7 @@ class PipelineManager:
         self.tiler = Gst.ElementFactory.make("nvmultistreamtiler", "tiler")
         self.sink = Gst.ElementFactory.make("nv3dsink", "sink")
 
-        self.elements = [self.streammux, self.nvosd, self.tiler, self.sink]
+        self.elements = [self.streammux, self.tiler, self.nvosd, self.sink]
 
         for element in self.elements:
             if not element:
@@ -172,10 +200,10 @@ class PipelineManager:
 
         self.nvosd.set_property("process-mode", 1)
         # self.nvosd.set_property("display-text", True)
-        # self.nvosd.set_property("display-clock", True)
-        # self.nvosd.set_property("clock-font-size", 30)
-        # self.nvosd.set_property("x-clock-offset", 100)
-        # self.nvosd.set_property("y-clock-offset", 100)
+        self.nvosd.set_property("display-clock", True)
+        self.nvosd.set_property("clock-font-size", 30)
+        self.nvosd.set_property("x-clock-offset", 100)
+        self.nvosd.set_property("y-clock-offset", 100)
 
         self.tiler.set_property("rows", self.tiler_rows)
         self.tiler.set_property("columns", self.tiler_cols)
@@ -196,7 +224,7 @@ class PipelineManager:
 
 
     def _add_probes(self):
-        osd_sink_pad = self.sink.get_static_pad("sink")
+        osd_sink_pad = self.tiler.get_static_pad("sink")
         if not osd_sink_pad:
             logger.warning("Unable to get NVOSD sink pad")
         else:            
@@ -265,7 +293,7 @@ class PipelineManager:
                 # source_bin = create_aravis_source_device_bin(source_id, camera.ip)
                 # source_bin = create_camgrabber_source_bin(source_id, camera.ip)
                 self.sources[source_id].active = True
-                self.sources[source_id].name = camera.ip
+                self.sources[source_id].name = camera.name
                 self.sources[source_id].type = SourceType.BAYER
 
                 arv_camera = source_bin.get_by_name(f"source-{camera.ip}").get_property("camera")
@@ -279,7 +307,7 @@ class PipelineManager:
                 source_bin = create_uridecodebin_source_bin(source_id, camera.uri)
                 self.sources[source_id].active = True
                 self.sources[source_id].uri = camera.uri
-                self.sources[source_id].name = camera.ip
+                self.sources[source_id].name = camera.name
                 self.sources[source_id].type = SourceType.RTSP
 
             else:
@@ -552,6 +580,7 @@ class PipelineManager:
                 arv_camera.set_float("GainAutoLowerLimit", 0.0)
                 arv_camera.set_boolean("AutoFunctionsROIEnable", True)
 
+
     def set_target_brightness_source(self, source_id: int, target_brightness: float):
         """
         Set the target brightness for a specific source during auto exposure.
@@ -584,7 +613,8 @@ class PipelineManager:
         """
 
         zoom = clamp(zoom, 0.0, 1.0)
-        scaled = scale(zoom, to_min=self.sources[source_id].limits['zoom_lower'], to_max=self.sources[source_id].limits['zoom_upper'])
+        scaled = scale(zoom, to_min=0, to_max=1000)
+        # scaled = scale(zoom, to_min=self.sources[source_id].limits['zoom_lower'], to_max=self.sources[source_id].limits['zoom_upper'])
 
         self.sources[source_id].arv_camera.set_integer("Zoom", int(scaled))
 
@@ -649,6 +679,7 @@ class PipelineManager:
         self.last_num_rendered_frames = rendered
 
         print(f"FPS:    {delta}")
+        self.fps = delta
 
 
         return True
@@ -670,7 +701,9 @@ class PipelineManager:
             
         batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
         l_frame = batch_meta.frame_meta_list
+        global moving_x, moving_y
         while l_frame is not None:
+
             try:
                 frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
             except StopIteration:
@@ -678,28 +711,130 @@ class PipelineManager:
 
             pad_index = frame_meta.pad_index
             ntp_ts = frame_meta.ntp_timestamp
+            font_size = 18
 
+            
             display_meta=pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-            display_meta.num_labels = 1
-            py_nvosd_text_params = display_meta.text_params[0]
+            display_meta.num_labels = 5 + len(self.osd_text_dict)
+            left_text_params = display_meta.text_params[0+len(self.osd_text_dict)]
+            left_text2_params = display_meta.text_params[1+ len(self.osd_text_dict)]
+            mid_text_params = display_meta.text_params[2+len(self.osd_text_dict)]
+            right_text_params = display_meta.text_params[3+len(self.osd_text_dict)]
+            setting_text_params = display_meta.text_params[4+len(self.osd_text_dict)]
 
-            text = f"Source {pad_index} : {self.osd_frame_number}"
+            for i in range (0, len(self.osd_text_dict)):
+                display_meta.text_params[i].display_text = self.osd_text_dict[i]['text']
 
-            py_nvosd_text_params.display_text = text
+                
+                display_meta.text_params[i].x_offset = self.osd_text_dict[i]['x']
+                display_meta.text_params[i].y_offset = self.osd_text_dict[i]['y']
+
+                display_meta.text_params[i].font_params.font_size = self.osd_text_dict[i]['font_size']
+                display_meta.text_params[i].font_params.font_name = "Noto Serif Bold"
+                display_meta.text_params[i].font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+                display_meta.text_params[i].set_bg_clr = 1
+                display_meta.text_params[i].text_bg_clr.set(0.0, 0.0, 0.0, 0.6)                
 
 
-            py_nvosd_text_params.x_offset = 10
-            py_nvosd_text_params.y_offset = 12
+
+            left_text = f"{self.sources[frame_meta.source_id].name:<20}   |   | X |   |   |"
+            left_text_2 = f""
+            mid_text = f"{self.osd_text}"
+            right_text = f"Source: {frame_meta.source_id}"
+
+            setting_text = "No Camera"
+            if self.sources[frame_meta.source_id].camera:
+                setting_text = f"Zoom :   {self.sources[frame_meta.source_id].camera.zoom}"
 
 
-            py_nvosd_text_params.font_params.font_name = "Serif"
-            py_nvosd_text_params.font_params.font_size = 45
+            left_text_params.display_text = left_text
+            left_text2_params.display_text = left_text_2
+            mid_text_params.display_text = mid_text
+            right_text_params.display_text = right_text
+            setting_text_params.display_text = setting_text
 
-            py_nvosd_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+            left_text_params.x_offset = 0
+            left_text_params.y_offset = 0
 
-            py_nvosd_text_params.set_bg_clr = 1
+            left_text2_params.x_offset = 0
+            left_text2_params.y_offset = font_size*2
 
-            py_nvosd_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 1.0)
+            mid_text_params.x_offset = (1920 - len(mid_text) * font_size) // 2
+            mid_text_params.y_offset = 0
+            
+            right_text_params.x_offset = 1920 - int(len(right_text) * font_size)
+            right_text_params.y_offset = 0
+
+            setting_text_params.x_offset = (1920 - int(len(setting_text) * font_size * 2) ) // 2
+            setting_text_params.y_offset = 1080 - 100
+
+
+        
+            left_text_params.font_params.font_name = "Noto Serif Bold"
+            left_text_params.font_params.font_size = font_size
+            left_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+            left_text_params.set_bg_clr = 1
+            left_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
+
+            left_text2_params.font_params.font_name = "Noto Serif Bold"
+            left_text2_params.font_params.font_size = font_size
+            left_text2_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+            left_text2_params.set_bg_clr = 1
+            left_text2_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
+
+            mid_text_params.font_params.font_name = "Noto Serif Bold"
+            mid_text_params.font_params.font_size = font_size
+            mid_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+            mid_text_params.set_bg_clr = 1
+            mid_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
+
+            right_text_params.font_params.font_name = "Noto Serif Bold"
+            right_text_params.font_params.font_size = font_size
+            right_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+            right_text_params.set_bg_clr = 1
+            right_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
+
+            setting_text_params.font_params.font_name = "Noto Serif Bold"
+            setting_text_params.font_params.font_size = font_size * 2
+            setting_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+            setting_text_params.set_bg_clr = 1
+            setting_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
+
+
+
+
+            display_meta.num_lines = 3
+            line_params_1 = display_meta.line_params[0]
+            line_params_2 = display_meta.line_params[1]
+            line_params_3 = display_meta.line_params[2]
+
+            # Define the vertices of the triangle
+            x1, y1 = 960 + moving_x, 400 + moving_y  # Top vertex
+            x2, y2 = 860 + moving_x, 600 + moving_y  # Bottom left vertex
+            x3, y3 = 1060 + moving_x, 600 + moving_y # Bottom right vertex
+            moving_x = int(math.sin(time.time()) * 200)
+            moving_y = int(math.cos(time.time()) * 200)
+
+            # Line from (x1, y1) to (x2, y2)
+            line_params_1.x1, line_params_1.y1 = x1, y1
+            line_params_1.x2, line_params_1.y2 = x2, y2
+            line_params_1.line_width = 10
+            line_params_1.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
+
+            # Line from (x2, y2) to (x3, y3)
+            line_params_2.x1, line_params_2.y1 = x2, y2
+            line_params_2.x2, line_params_2.y2 = x3, y3
+            line_params_2.line_width = 10
+            line_params_2.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
+
+            # Line from (x3, y3) to (x1, y1)
+            line_params_3.x1, line_params_3.y1 = x3, y3
+            line_params_3.x2, line_params_3.y2 = x1, y1
+            line_params_3.line_width = 10
+            line_params_3.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
+
+
+
 
             # print(pyds.get_string(py_nvosd_text_params.display_text))
 
@@ -709,5 +844,25 @@ class PipelineManager:
                 l_frame=l_frame.next
             except StopIteration:
                 break
+    
 
         return Gst.PadProbeReturn.OK
+
+
+
+import time
+import math
+
+moving_x = 0
+moving_y = 0
+
+def get_center_position(string_length, font_size, window_x, window_y):
+    text_width = string_length * font_size * 1
+    
+    # Calculate the x position for centering
+    x = (window_x - text_width) // 2
+    
+    # Calculate the y position for centering
+    y = (window_y - font_size) // 2
+    
+    return int(x), y
