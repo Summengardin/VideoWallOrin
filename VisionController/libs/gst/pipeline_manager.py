@@ -312,6 +312,13 @@ class PipelineManager:
         Gst.debug_bin_to_dot_file_with_ts(self.pipeline, Gst.DebugGraphDetails.ALL , "pipeline")
 
         
+        # After source has began playing, get min-max values of selected features
+        # if self.sources[source_id].type == SourceType.BAYER:
+        #     self.sources[source_id].limits['exposure_time_lower'], self.sources[source_id].limits['exposure_time_upper'] = self.get_exposure_bounds(source_id)
+        #     self.sources[source_id].limits['gain_lower'], self.sources[source_id].limits['gain_upper'] = self.get_gain_bounds(source_id)
+            
+        #     if self.sources[source_id].camera.has_zoom:
+        #         self.sources[source_id].limits['zoom_lower'], self.sources[source_id].limits['zoom_upper'] = self.get_zoom_bounds(source_id)
     
         return True
 
@@ -377,94 +384,7 @@ class PipelineManager:
             self.sources[source_id].bin = None
 
         
-
-        # self.sources[source_id] = Source()
-
-        # if self.num_sources > 0:
-        #     state_return = self.pipeline.set_state(Gst.State.PLAYING)
-
-        #     if state_return == Gst.StateChangeReturn.SUCCESS:
-        #         logger.debug("Source removed, now playing\n")  
-
-        #     elif state_return == Gst.StateChangeReturn.FAILURE:
-        #         logger.error("Unable to play after removing source %d" % source_id)
-
-
-    def _update_features(self, camera_ip: str, features: dict):
-        feature_str = " ".join([f"{key}={value}" for key, value in features.items()])
-
-        src = self.pipeline.get_by_name(f"source-{camera_ip}")
-
-        if src is None:
-            logger.error(f"Source {camera_ip} not found")
-            return False    
-
-        src.set_property("features", feature_str)
-
-        src = self.pipeline.get_by_name(f"source-{camera_ip}")
-
-        if src is None:
-            logger.error(f"Source {camera_ip} not found")
-            return False    
-
-        src.set_property("features", feature_str)
-
-        return True
     
-
-    def get_exposure_bounds(self, source_id: int) -> Tuple[float, float]:
-        """
-        Get the exposure bounds for a specific source.
-
-        :param source_id: The ID of the source.
-        :type source_id: int
-
-        :return: The exposure bounds in unit interval (0 - 1).
-        :rtype: Tuple[float, float]
-
-        """
-
-        return self.sources[source_id].arv_camera.get_float_bounds("ExposureTime")
-    
-
-
-
-    def set_zoom(self, camera_ip: str, zoom: float):
-        """
-        Set the zoom for a specific source. If zoom is out of bounds, it will be clamped.
-
-        :param camera_ip: The IP of the camera.
-        :type camera_ip: str
-        :param zoom: The zoom value in unit interval (0 - 1)
-        :type zoom: float
-
-        """
-        
-        if zoom < 0.0 : zoom = 0.0
-        elif zoom > 1.0: zoom = 1.0
-        
-        scaled = int(zoom * 1000)
-        features = {"Zoom": scaled}
-
-        self._update_features(camera_ip, features)
-
-
-    def set_exposure_time(self, camera_ip: str, exposure_time: float):
-        """
-        Set the exposure time for a specific camera during manual exposure.
-
-        :param camera_ip: The IP of the camera.
-        :type camera_ip: str
-        :param exposure_time: The exposure time in unit interval (0 - 1).
-        :type exposure_time: int
-        """
-        
-        exposure_time = clamp(exposure_time, 0.0, 1.0)
-        scaled = int(exposure_time * 20000)
-
-        features = {"ExposureTime": scaled}
-
-        self._update_features(camera_ip, features)
     
 
     def set_exposure_time_source(self, source_id: int, exposure_time: float):
@@ -501,6 +421,7 @@ class PipelineManager:
 
         self.sources[source_id].arv_camera.set_float("Gain", scaled)
 
+
     def set_exposure_auto_source(self, source_id: int, exposure_auto: str):
         """
         Set the exposure auto for a specific source during manual exposure.
@@ -531,8 +452,6 @@ class PipelineManager:
                 arv_camera.set_float("GainAutoUpperLimit", 24.0)
                 arv_camera.set_float("GainAutoLowerLimit", 0.0)
                 arv_camera.set_boolean("AutoFunctionsROIEnable", True)
-
-
 
     def set_target_brightness_source(self, source_id: int, target_brightness: float):
         """
@@ -566,96 +485,54 @@ class PipelineManager:
         """
 
         zoom = clamp(zoom, 0.0, 1.0)
-
-        lower, upper = self.sources[source_id].arv_camera.get_integer_bounds("Zoom")
-
-
-        scaled = scale(zoom, to_min=lower, to_max=upper)
+        scaled = scale(zoom, to_min=self.sources[source_id].limits['zoom_lower'], to_max=self.sources[source_id].limits['zoom_upper'])
 
         self.sources[source_id].arv_camera.set_integer("Zoom", int(scaled))
 
 
-    def set_gain(self, camera_ip: str, gain: float):
+    def get_exposure_bounds(self, source_id: int) -> Tuple[float, float]:
         """
-        Set the gain for a specific camera.
+        Get the exposure bounds for a specific source.
 
-        :param camera_ip: The IP of the camera.
-        :type camera_ip: str
-        :param gain: The gain value. (0 - 1)
-        :type gain: float
-        """
+        :param source_id: The ID of the source.
+        :type source_id: int
 
-        gain = clamp(gain, 0.0, 1.0)
+        :return: The exposure bounds
+        :rtype: Tuple[float, float]
 
-        scaled = scale(gain, to_min=0.0, to_max=48.0)
-
-        features = {"Gain": scaled}
-
-        self._update_features(camera_ip, features)
-
-
-    def set_exposure_auto(self, camera_ip: str, exposure_auto: str):
-        """
-        Set the exposure auto mode for a specific camera.
-
-        :param camera_ip: The IP of the camera.
-        :type camera_ip: str
-
-        :param exposure_auto: The exposure auto mode. This can be one of the following: "Off", "Once", "Continuous"
-        :type exposure_auto: str
-
-        :return: True if the exposure auto mode was successfully set, False otherwise.
-        :rtype: bool
         """
 
-        if exposure_auto not in self.exposure_auto_modes:
-            logger.warning(f"Camera {camera_ip}: Unknown exposure auto mode: {exposure_auto}")
-            return False
-
-        features = {"ExposureAuto": exposure_auto,
-                    "GainAuto": exposure_auto}
-
-        if exposure_auto != "Off":
-            features["AutoExposureTimeUpperLimit"] = 20000.0
-            features["AutoExposureTimeLowerLimit"] = 1.0
-            features["AutoGainUpperLimit"] = 24.0
-            features["AutoGainLowerLimit"] = 0.0
-            features["AutoFunctionProfile"] = "MinimizeGain"
-            features["AutoFunctionROISelector"] = "ROI1"
-            features["AutoFunctionROIUseBrightness"] = True
-            
-        
-        self._update_features(camera_ip, features)
+        return self.sources[source_id].arv_camera.get_float_bounds("ExposureTime")
 
 
-    def set_target_brightness(self, camera_ip: str, brightness: float):
+    def get_gain_bounds(self, source_id: int) -> Tuple[float, float]:
         """
-        Set the target brightnes for a specific camera during auto exposure.
+        Get the gain bounds for a specific source.
 
-        :param camera_ip: The IP of the camera.
-        :type camera_ip: str
-        :param brightness: The target brightness value in unit interval (0 - 1).
-        :type brightness: float
+        :param source_id: The ID of the source.
+        :type source_id: int
+
+        :return: The gain bounds
+        :rtype: Tuple[float, float]
+
         """
-        brightness = clamp(brightness, 0.0, 1.0)
 
-        
-        try:
-            index = index_dataclass(self.sources, "ip", camera_ip)
-        except:
-            return False
+        return self.sources[source_id].arv_camera.get_float_bounds("Gain")
+    
 
-        if self.sources[index].camera.type == "TheImagingSource":
-            features = {"ExposureAutoReference": int(brightness*255)}
-        else:
-            self.target_brightness_upper_limit = 0.25
-            self.target_brightness_lower_limit = 0.0
+    def get_zoom_bounds(self, source_id: int) -> Tuple[int, int]:
+        """
+        Get the zoom bounds for a specific source.
 
-            brightness = scale(brightness, 0.0, 1.0, self.target_brightness_lower_limit, self.target_brightness_upper_limit)
-            features = {"AutoTargetBrightness": brightness}
+        :param source_id: The ID of the source.
+        :type source_id: int
 
-        self._update_features(camera_ip, features)
+        :return: The zoom bounds
+        :rtype: Tuple[int, int]
 
+        """
+
+        return self.sources[source_id].arv_camera.get_integer_bounds("Zoom")
 
     def _print_fps(self):
         if not self.sink:
