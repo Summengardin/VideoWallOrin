@@ -30,6 +30,7 @@ class Source:
     camera: Camera = None
     arv_camera: Aravis.Camera = None
     enabled: bool = False
+    limits: dict = None
 
 
 

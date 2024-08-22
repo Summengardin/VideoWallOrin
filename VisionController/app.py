@@ -188,6 +188,7 @@ class App():
         elif subcommand == 'Gain':
             self._run_with_timeout(self._update_source_feature, args=(source_id, 'gain'), kwargs={'value': float(payload)})
 
+
     def _update_source_feature(self, source_id: int, feature, value):
         source = self.pipeline_manager.sources[source_id]
 
@@ -196,7 +197,6 @@ class App():
                 
                 source.camera.exposure_time_auto = 'Off' if value == 0 else 'Continuous'
                 return self.pipeline_manager.set_exposure_auto_source(source.id, source.camera.exposure_time_auto)
-
 
             elif feature == "exposure_time":
                 source.camera.exposure_time = value
@@ -234,7 +234,7 @@ class App():
             elif feature == "exposure_time":
                 try:
                     if source.camera.exposure_time_auto == 'manual':
-                        value = int((1-value)*21)
+                        value = int((1 - value) * 21)
                         source.camera.exposure_time = value
                         source.camera.visca_controller.set_shutter(value)
                     else:
@@ -245,7 +245,7 @@ class App():
                     
             elif feature == "gain":
                 value = int(value * 14 + 1)
-                self.gain = value
+                source.camera.gain = value
                 try:
                     source.camera.visca_controller.set_gain(value)
                 except Exception as e:
@@ -290,97 +290,8 @@ class App():
             camera.format = payload
         elif command == 'Framerate':
             camera.framerate = float(payload)
-        elif command == 'Zoom':
-            camera.zoom = float (payload)
-            self._run_with_timeout(self._update_camera_feature, args=(camera, "zoom", camera.zoom))
-        elif command == 'Exposure':
-            camera.exposure_time = float(payload)
-            self._run_with_timeout(self._update_camera_feature, args=(camera, "exposure_time", camera.exposure_time))
-        elif command == 'ExposureAuto':
-            camera.exposure_time_auto = int(payload)
-            self._run_with_timeout(self._update_camera_setting, args=(camera, "exposure_time_auto", camera.exposure_time_auto))
-        elif command == 'Gain':
-            camera.gain = float(payload)
-            self._run_with_timeout(self._update_camera_feature, args=(camera, "gain", camera.gain))
-        elif command == 'GainAuto':
-            camera.gain_auto = float(payload)
-            self._run_with_timeout(self._update_camera_feature, args=(camera, "gain_auto", camera.gain_auto))
-
         # self._run_with_timeout(self.pipeline_manager.update_camera_features, args=(camera.ip,))
 
-
-
-
-
-    def _update_camera_feature(self, camera: Camera, setting: str, value):
-
-        if camera.type == "Basler" or camera.type == "TheImagingSource":
-            
-            if setting == "exposure_time_auto":
-                camera.exposure_time_auto = 'Off' if value == 0 else 'Continuous'
-                return self.pipeline_manager.set_exposure_auto(camera.ip, camera.exposure_time_auto)
-                
-            elif setting == "exposure_time":
-                camera.exposure_time = value
-                if camera.exposure_time_auto != 'Off':
-                    return self.pipeline_manager.set_target_brightness(camera.ip, camera.exposure_time)
-                
-                return self.pipeline_manager.set_exposure_time(camera.ip, camera.exposure_time) 
-                
-            elif setting == "gain":
-                camera.gain = value
-                if camera.exposure_time_auto != 'Off':
-                    return 
-                return self.pipeline_manager.set_gain(camera.ip, camera.gain)                
-
-            elif setting == "zoom" and camera.has_zoom:
-                camera.zoom = value
-                return self.pipeline_manager.set_zoom(camera.ip, camera.zoom)
-
-        elif camera.type == "Compressed" and camera.visca_controller is not None:
-
-            if setting == "exposure_time_auto":
-                camera.exposure_time_auto = 'auto' if value == 1 else 'manual'
-                try:
-                    if value == 1: 
-                        camera.visca_controller.set_exposure_compensation_on()
-                    else: 
-                        camera.visca_controller.set_exposure_compensation_off()
-
-                    camera.visca_controller.autoexposure_mode(camera.exposure_time_auto)
-                except Exception as e:
-                    logger.warning(f"Camera {camera.ip}: Failed to set exposure time auto: {e}")
-
-            elif setting == "exposure_time":
-                try:
-                    if camera.exposure_time_auto == 'manual':
-                        value = int((1-value)*21)
-                        camera.exposure_time = value
-                        camera.visca_controller.set_shutter(value)
-                    else:
-                        value = int(value * 14)
-                        camera.visca_controller.set_exposure_compensation(value)
-                except Exception as e:
-                    logger.warning(f"Camera {camera.ip}: Failed to set exposure time: {e}")
-                    
-            elif setting == "gain":
-                value = int(value * 14 + 1)
-                self.gain = value
-                try:
-                    camera.visca_controller.set_gain(value)
-                except Exception as e:
-                    logger.warning(f"Camera {camera.ip}: Failed to set gain: {e}")
-
-            elif setting == "zoom":
-                self.zoom = value
-                try:
-                    camera.visca_controller.zoom_to(value)
-                except Exception as e:
-                    logger.warning(f"Camera {camera.ip}: Failed to set zoom: {e}")
-            else:
-                return False
-
-            return True
 
 
     def _update_pipeline_config(self, command, payload):
