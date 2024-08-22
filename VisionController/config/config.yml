@@ -10,12 +10,12 @@ mqtt:
 
   # Cameras are defined in the form 'Cameras/Camera0/'
   cameras:  
-    - 'Cameras/Camera1/'
-    - 'Cameras/Camera2/'
-    - 'Cameras/Camera3/'
-    - 'Cameras/Camera4/'
-    - 'Cameras/Camera5/'
-    - 'Cameras/Camera6/'
+    - 'Camera1'
+    - 'Camera2'
+    - 'Camera3'
+    - 'Camera4'
+    - 'Camera5'
+    - 'Camera6'
   camera_subtopics: 
     - 'IP'
     - 'Type'
@@ -26,12 +26,13 @@ mqtt:
     - 'Zoom'
     - 'Exposure'
     - 'ExposureAuto'
-    - 'Gain'
+    - 'Gain'  
     - 'GainAuto'
+    - 'Name'
 
   # VisionControllers are defined in the form 'VisionControllers/VisionController0/'
   vision_controllers: 
-    - 'VisionControllers/VisionController0/'
+    - 'VisionController0'
   vision_controller_subtopics:
     - 'IP'
     - 'Width'
@@ -41,32 +42,16 @@ mqtt:
     - 'Fullscreen'
     - 'Shutdown': 1
     - 'StartPipeline': 1
-    # - 'Tile00/Source'
-    # - 'Tile00/Enable'
-    - 'Tile01/Source'
-    - 'Tile01/Enable'
-    - 'Tile01/Exposure'
-    - 'Tile01/ExposureAuto'
-    - 'Tile01/Gain'
-    - 'Tile01/Zoom'
-    - 'Tile02/Source'
-    - 'Tile02/Enable'
-    - 'Tile02/Exposure'
-    - 'Tile02/ExposureAuto'
-    - 'Tile02/Gain'
-    - 'Tile02/Zoom'
-    - 'Tile03/Source'
-    - 'Tile03/Enable'
-    - 'Tile03/Exposure'
-    - 'Tile03/ExposureAuto'
-    - 'Tile03/Gain'
-    - 'Tile03/Zoom'
-    - 'Tile04/Source'
-    - 'Tile04/Enable'
-    - 'Tile04/Exposure'
-    - 'Tile04/ExposureAuto'
-    - 'Tile04/Gain'
-    - 'Tile04/Zoom'
+
+  # There are four tiles in the form 'VisionControllers/VisionController0/TileXX/'
+
+  tile_subtopics:
+    - 'Source'
+    - 'Enable'
+    - 'Exposure'
+    - 'ExposureAuto'
+    - 'Gain'
+    - 'Zoom'
 
 pipeline:
   tiler_rows: 2

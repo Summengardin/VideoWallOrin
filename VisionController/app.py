@@ -38,8 +38,8 @@ class App():
         self.command_queue = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=4)
         
-        self.topics = self._build_mqtt_topics(self.mqtt_config.get('cameras'), self.mqtt_config.get('camera_subtopics'), self.mqtt_config.get('vision_controllers'), self.mqtt_config.get('vision_controller_subtopics'))
-        self.mqtt_client = MQTTClient(self.mqtt_config['broker'], self.mqtt_config['port'], self.topics)
+        self.topics = self._build_mqtt_topics(self.mqtt_config)
+        self.mqtt_client = MQTTClient(self.mqtt_config.get('broker'), self.mqtt_config.get('port'), self.topics)
         self.mqtt_client.set_on_message_callback(self._cb_mqtt_on_message)
 
         self.pipeline_manager = PipelineManager(self.pipeline_config)
@@ -252,7 +252,7 @@ class App():
                     logger.warning(f"Camera {source.camera.ip}: Failed to set gain: {e}")
 
             elif feature == "zoom":
-                self.zoom = value
+                source.camera.zoom = value
                 try:
                     source.camera.visca_controller.zoom_to(value)
                 except Exception as e:
@@ -281,7 +281,8 @@ class App():
 
             if camera.type == "Compressed":
                 self._run_with_timeout(camera.set_controller, args=(ViscaController(camera.ip, 1000),))
-
+        elif command == 'Name':
+            camera.name = payload
         elif command == 'Width':
             camera.width = int(payload)
         elif command == 'Height':
@@ -290,21 +291,7 @@ class App():
             camera.format = payload
         elif command == 'Framerate':
             camera.framerate = float(payload)
-        elif command == 'Zoom':
-            camera.zoom = float (payload)
-            self._run_with_timeout(self._update_camera_setting, args=(camera, "zoom", camera.zoom))
-        elif command == 'Exposure':
-            camera.exposure_time = float(payload)
-            self._run_with_timeout(self._update_camera_setting, args=(camera, "exposure_time", camera.exposure_time))
-        elif command == 'ExposureAuto':
-            camera.exposure_time_auto = int(payload)
-            self._run_with_timeout(self._update_camera_setting, args=(camera, "exposure_time_auto", camera.exposure_time_auto))
-        elif command == 'Gain':
-            camera.gain = float(payload)
-            self._run_with_timeout(self._update_camera_setting, args=(camera, "gain", camera.gain))
-        elif command == 'GainAuto':
-            camera.gain_auto = float(payload)
-            self._run_with_timeout(self._update_camera_setting, args=(camera, "gain_auto", camera.gain_auto))
+
 
         # self._run_with_timeout(self.pipeline_manager.update_camera_features, args=(camera.ip,))
 
@@ -344,25 +331,35 @@ class App():
         logger.debug(f"Queued:    {message.topic}: {payload}")
 
 
-    def _build_mqtt_topics(self, cameras, camera_subtopics, vision_controllers, vision_controller_subtopics):
+    def _build_mqtt_topics(self, mqtt_config):
+        cameras = mqtt_config.get('cameras')
+        camera_subtopics = mqtt_config.get('camera_subtopics')
+        vision_controllers = mqtt_config.get('vision_controllers')
+        vision_controller_subtopics = mqtt_config.get('vision_controller_subtopics')
+        tile_subtopics = mqtt_config.get('tile_subtopics')
+
         topics = []
         for camera in cameras:
             for subtopic in camera_subtopics:
                 if type(subtopic) is dict:
                     topic = subtopic.keys()[0]
                     qos = subtopic.values()[0]
-                    topics.append((camera + topic, qos))
+                    topics.append((f"Cameras/{camera}/{topic}", qos))
                 else:
-                    topics.append((camera + subtopic, 0))
+                    topics.append((f"Cameras/{camera}/{subtopic}", 0))
 
         for vision_controller in vision_controllers:
-            for subtopic in vision_controller_subtopics:
+            for subtopic in vision_controller_subtopics:  
                 if isinstance(subtopic, dict):
                     topic = list(subtopic.keys())[0]
                     qos = subtopic[topic]
-                    topics.append((vision_controller + topic, qos))
+                    topics.append((f"VisionControllers/{vision_controller}/{topic}", qos))
                 else:
-                    topics.append((vision_controller + subtopic, 0))
+                    topics.append((f"VisionControllers/{vision_controller}/{subtopic}", 0))
+
+            for tile_id in ['01', '02', '03', '04']:
+                    for subtopic in tile_subtopics:
+                        topics.append((f"VisionControllers/{vision_controller}/Tile{tile_id}/{subtopic}", 0))
 
         return topics
 
