@@ -44,6 +44,7 @@ class PipelineManager:
         self.last_num_rendered_frames = 0
         self.pipeline_pause_because_last_source = False
         self.osd_frame_number = 0
+        self.osd_text = ""
         self.osd_text_dict = [
             {
                 "text": "<Name of source>  <States>",
@@ -200,10 +201,10 @@ class PipelineManager:
 
         self.nvosd.set_property("process-mode", 1)
         # self.nvosd.set_property("display-text", True)
-        self.nvosd.set_property("display-clock", True)
-        self.nvosd.set_property("clock-font-size", 30)
-        self.nvosd.set_property("x-clock-offset", 100)
-        self.nvosd.set_property("y-clock-offset", 100)
+        # self.nvosd.set_property("display-clock", True)
+        # self.nvosd.set_property("clock-font-size", 30)
+        # self.nvosd.set_property("x-clock-offset", 100)
+        # self.nvosd.set_property("y-clock-offset", 100)
 
         self.tiler.set_property("rows", self.tiler_rows)
         self.tiler.set_property("columns", self.tiler_cols)
@@ -642,25 +643,25 @@ class PipelineManager:
             right_text_params = display_meta.text_params[3+len(self.osd_text_dict)]
             setting_text_params = display_meta.text_params[4+len(self.osd_text_dict)]
 
-            for i in range (0, len(self.osd_text_dict)):
-                display_meta.text_params[i].display_text = self.osd_text_dict[i]['text']
+            # for i in range (0, len(self.osd_text_dict)):
+            #     display_meta.text_params[i].display_text = self.osd_text_dict[i]['text']
 
                 
-                display_meta.text_params[i].x_offset = self.osd_text_dict[i]['x']
-                display_meta.text_params[i].y_offset = self.osd_text_dict[i]['y']
+            #     display_meta.text_params[i].x_offset = self.osd_text_dict[i]['x']
+            #     display_meta.text_params[i].y_offset = self.osd_text_dict[i]['y']
 
-                display_meta.text_params[i].font_params.font_size = self.osd_text_dict[i]['font_size']
-                display_meta.text_params[i].font_params.font_name = "Noto Serif Bold"
-                display_meta.text_params[i].font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-                display_meta.text_params[i].set_bg_clr = 1
-                display_meta.text_params[i].text_bg_clr.set(0.0, 0.0, 0.0, 0.6)                
+            #     display_meta.text_params[i].font_params.font_size = self.osd_text_dict[i]['font_size']
+            #     display_meta.text_params[i].font_params.font_name = "Noto Serif Bold"
+            #     display_meta.text_params[i].font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+            #     display_meta.text_params[i].set_bg_clr = 1
+            #     display_meta.text_params[i].text_bg_clr.set(0.0, 0.0, 0.0, 0.6)                
 
 
 
             left_text = f"{self.sources[frame_meta.source_id].name:<20}   |   | X |   |   |"
             left_text_2 = f""
             mid_text = f"{self.osd_text}"
-            right_text = f"Source: {frame_meta.source_id}"
+            right_text = f"Source: {self.sources[frame_meta.source_id].ip}"
 
             setting_text = "No Camera"
             if self.sources[frame_meta.source_id].camera:
@@ -721,33 +722,36 @@ class PipelineManager:
             setting_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
 
 
+            
 
+
+            # Draw triangle
 
             display_meta.num_lines = 3
             line_params_1 = display_meta.line_params[0]
             line_params_2 = display_meta.line_params[1]
             line_params_3 = display_meta.line_params[2]
 
-            # Define the vertices of the triangle
-            x1, y1 = 960 + moving_x, 400 + moving_y  # Top vertex
-            x2, y2 = 860 + moving_x, 600 + moving_y  # Bottom left vertex
-            x3, y3 = 1060 + moving_x, 600 + moving_y # Bottom right vertex
+
+
+            # x1, y1 = 960 + moving_x, 400 + moving_y  # Top vertex
+            # x2, y2 = 860 + moving_x, 600 + moving_y  # Bottom left vertex
+            # x3, y3 = 1060 + moving_x, 600 + moving_y # Bottom right vertex
             moving_x = int(math.sin(time.time()) * 200)
             moving_y = int(math.cos(time.time()) * 200)
+            triangle_x, triangle_y = 1920//2 + moving_x, 1080//2 + moving_y
+            (x1, y1), (x2, y2), (x3, y3) = get_triangle_points(triangle_x, triangle_y, 100)
 
-            # Line from (x1, y1) to (x2, y2)
             line_params_1.x1, line_params_1.y1 = x1, y1
             line_params_1.x2, line_params_1.y2 = x2, y2
             line_params_1.line_width = 10
             line_params_1.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
 
-            # Line from (x2, y2) to (x3, y3)
             line_params_2.x1, line_params_2.y1 = x2, y2
             line_params_2.x2, line_params_2.y2 = x3, y3
             line_params_2.line_width = 10
             line_params_2.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
 
-            # Line from (x3, y3) to (x1, y1)
             line_params_3.x1, line_params_3.y1 = x3, y3
             line_params_3.x2, line_params_3.y2 = x1, y1
             line_params_3.line_width = 10
@@ -756,7 +760,6 @@ class PipelineManager:
 
 
 
-            # print(pyds.get_string(py_nvosd_text_params.display_text))
 
             pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
 
@@ -769,6 +772,17 @@ class PipelineManager:
         return Gst.PadProbeReturn.OK
 
 
+def get_triangle_points(center_x: int, center_y: int, size: int) -> Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]]:
+    """
+    Returns three points (x,y) of a triangle, given a center position and size.
+    """
+    x1 = center_x - size
+    y1 = center_y - size
+    x2 = center_x
+    y2 = center_y + size
+    x3 = center_x + size
+    y3 = center_y - size
+    return (x1, y1), (x2, y2), (x3, y3)
 
 import time
 import math

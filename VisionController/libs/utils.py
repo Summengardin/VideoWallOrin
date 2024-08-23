@@ -48,8 +48,6 @@ def parse_config(config_path: str) -> dict:
         return config
 
 
-
-
 def float_to_fraction(float_number, max_denominator=1000) -> tuple[int, int]:
     """
     Convert a float to its best fraction representation.
@@ -87,3 +85,16 @@ def clamp(value, lower, upper):
     :return: The clamped value.
     """
     return lower if value < lower else upper if value > upper else value
+
+
+def get_center_position_of_text_on_screen(string_length: int, font_size: int, window_x: int, window_y: int) -> tuple[int, int]:
+    """
+    Get the center position of a string on the screen.
+
+    :param string_length: The length of the string.
+    :param font_size: The size of the font.
+    :param window_x: The x-coordinate of the window.
+    :param window_y: The y-coordinate of the window.
+    :return: The x and y coordinates of the center of the string.
+    """
+    return window_x // 2 - string_length // 2, window_y // 2 - font_size
