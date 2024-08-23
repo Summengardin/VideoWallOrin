@@ -18,6 +18,7 @@ from VisionController.libs.camera import Camera
 from VisionController.libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin
 from VisionController.libs.utils import index_dataclass, scale, clamp
 from VisionController.libs.types import Source, SourceType
+from VisionController.libs.gst.osd_manager import OSDManager
 
 
 if Gst.is_initialized() == False:
@@ -40,6 +41,7 @@ class PipelineManager:
         self.num_sources = 0
         self.sources = [Source(id=i, name=f"Source {i}") for i in range(self.max_num_sources)]
         self.active_source_ips = []
+        self.osd_managers = [OSDManager(None) for i in range(self.max_num_sources)]
 
         self.last_num_rendered_frames = 0
         self.pipeline_pause_because_last_source = False
@@ -229,7 +231,8 @@ class PipelineManager:
         if not osd_sink_pad:
             logger.warning("Unable to get NVOSD sink pad")
         else:            
-            osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
+            # osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
+            osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_manager_probe, None)
 
 
     def _fill_with_placeholders(self):
@@ -848,6 +851,47 @@ class PipelineManager:
             except StopIteration:
                 break
     
+
+        return Gst.PadProbeReturn.OK
+
+
+    def _osd_manager_probe(self, pad, info, user_data):
+        gst_buffer = info.get_buffer()
+        if not gst_buffer:
+            logger.warning("Unable to get GstBuffer ")
+            return
+
+        batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
+        l_frame = batch_meta.frame_meta_list
+        while l_frame is not None:
+
+            try:
+                frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
+            except StopIteration:
+                break
+
+            display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta) 
+            source_id = frame_meta.source_id
+            text_dicts = self.osd_managers[source_id].get_text_dicts()
+
+            display_meta.num_labels = len(text_dicts)
+            for i in range(len(text_dicts)):
+                label_meta = display_meta.text_params[i]
+                label_meta.display_text = text_dicts[i]["text"]
+                label_meta.x_offset = text_dicts[i]["x"]
+                label_meta.y_offset = text_dicts[i]["y"]
+                label_meta.font_params.font_name = "Noto Serif Bold"
+                label_meta.font_params.font_size = text_dicts[i]["font_size"]
+                label_meta.font_params.font_color.set(*text_dicts[i]["font_color"])
+                label_meta.set_bg_clr= 1
+                label_meta.text_bg_clr.set(*text_dicts[i]["bg_color"])
+
+            pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+
+            try:
+                l_frame=l_frame.next
+            except StopIteration:
+                break
 
         return Gst.PadProbeReturn.OK
 

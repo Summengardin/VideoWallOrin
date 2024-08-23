@@ -89,7 +89,7 @@ def clamp(value, lower, upper):
 
 def get_center_position_of_text_on_screen(string_length: int, font_size: int, window_x: int, window_y: int) -> tuple[int, int]:
     """
-    Get the center position of a string on the screen.
+    Get the center position of a string on the screen. Very simplified function.
 
     :param string_length: The length of the string.
     :param font_size: The size of the font.
@@ -97,4 +97,4 @@ def get_center_position_of_text_on_screen(string_length: int, font_size: int, wi
     :param window_y: The y-coordinate of the window.
     :return: The x and y coordinates of the center of the string.
     """
-    return window_x // 2 - string_length // 2, window_y // 2 - font_size
+    return (window_x - string_length * font_size) // 2, window_y // 2 - font_size
