@@ -308,7 +308,7 @@ class App():
             self.pipeline_manager.tiler_columns = int(payload)
 
 
-    def _run_with_timeout(self, func, args=(), kwargs={}, timeout=20):
+    def _run_with_timeout(self, func, args=(), kwargs={}, timeout=30):
         """Runs a function asynchronously with a timeout."""
         logger.debug(f"Running {func.__name__} with timeout {timeout}")
         future = self.executor.submit(func, *args, **kwargs)
