@@ -5,6 +5,7 @@ gi.require_version('GLib', '2.0')
 gi.require_version('Aravis', '0.8')
 from gi.repository import Gst, GLib, Aravis
 from itertools import pairwise
+from collections import OrderedDict
 from typing import Tuple
 from dataclasses import dataclass 
 from enum import Enum
@@ -41,7 +42,7 @@ class PipelineManager:
         self.num_sources = 0
         self.sources = [Source(id=i, name=f"Source {i}") for i in range(self.max_num_sources)]
         self.active_source_ips = []
-        self.osd_managers = [OSDManager(None) for i in range(self.max_num_sources)]
+        self.osd_manager = OSDManager()
 
         self.last_num_rendered_frames = 0
         self.pipeline_pause_because_last_source = False
@@ -176,22 +177,33 @@ class PipelineManager:
         if not self.pipeline:
             logger.critical("Unable to create Pipeline")
             return
-        
+    
+    
+
 
     def _create_elements(self):
         logger.info("Creating Elements")
         
         self.streammux = Gst.ElementFactory.make("nvstreammux", "streammux")
-        self.nvinfer = Gst.ElementFactory.make("nvinfer", "inference")        
-        self.nvosd = Gst.ElementFactory.make("nvdsosd", "osd")
+        # self.nvinfer = Gst.ElementFactory.make("nvinfer", "inference")        
         self.tiler = Gst.ElementFactory.make("nvmultistreamtiler", "tiler")
+        self.nvosd = Gst.ElementFactory.make("nvdsosd", "osd")
         self.sink = Gst.ElementFactory.make("nv3dsink", "sink")
 
-        self.elements = [self.streammux, self.tiler, self.nvosd, self.sink]
+        self.elements = OrderedDict({"streammux": self.streammux, 
+                         "nvmultistreamtiler": self.tiler, 
+                         "nvdsosd": self.nvosd, 
+                         "nv3dsink": self.sink})
 
-        for element in self.elements:
+        # for element in self.elements:
+        #     if not element:
+        #         logger.error(f"Unable to create {self.get_var_name(element)}")
+        #         return
+        #     self.pipeline.add(element)
+
+        for var_name, element in self.elements.items():
             if not element:
-                logger.error(f"Unable to create {element.get_name()}")
+                logger.error(f"Unable to create {var_name}")
                 return
             self.pipeline.add(element)
 
@@ -221,9 +233,9 @@ class PipelineManager:
     def _link_elements(self):
         logger.info("Linking Elements")
 
-        for pair in pairwise(self.elements):
-            if not pair[0].link(pair[1]):
-                logger.error(f"Elements {pair[0].get_name()} and {pair[1].get_name()} couldn't be linked")
+        for (var_name1, element1), (var_name2, element2) in pairwise(self.elements.items()):
+            if not element1.link(element2):
+                logger.error(f"Elements {var_name1} and {var_name2}  couldn't be linked")
 
 
     def _add_probes(self):
@@ -861,37 +873,73 @@ class PipelineManager:
             logger.warning("Unable to get GstBuffer ")
             return
 
-        batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
-        l_frame = batch_meta.frame_meta_list
-        while l_frame is not None:
+        try: 
+            batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
+            l_frame = batch_meta.frame_meta_list
+            while l_frame is not None:
 
-            try:
-                frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
-            except StopIteration:
-                break
+                try:
+                    frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
+                except StopIteration:
+                    break
 
-            display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta) 
-            source_id = frame_meta.source_id
-            text_dicts = self.osd_managers[source_id].get_text_dicts()
+                display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta) 
+                source_id = frame_meta.source_id
+                
+                text_dicts  = [ {
+                "text": "LEFT TEXT",
+                "x": 0,
+                "y": 0,
+                "font_size": 18,
+                "font_color": (1.0, 1.0, 1.0, 1.0),
+                "bg_color": (0.0, 0.0, 0.0, 0.6)
+            },
+            {
+                "text": "RIGHT TEXT",
+                "x": 1920 // 2,
+                "y": 0,
+                "font_size": 18,
+                "font_color": (1.0, 1.0, 1.0, 1.0),
+                "bg_color": (0.0, 0.0, 0.0, 0.6)
+            },
+            {
+                "text": "MID TEXT",
+                "x": 1920 - 200,
+                "y": 0,
+                "font_size": 18,
+                "font_color": (1.0, 1.0, 1.0, 1.0),
+                "bg_color": (0.0, 0.0, 0.0, 0.6)
+            }]
 
-            display_meta.num_labels = len(text_dicts)
-            for i in range(len(text_dicts)):
-                label_meta = display_meta.text_params[i]
-                label_meta.display_text = text_dicts[i]["text"]
-                label_meta.x_offset = text_dicts[i]["x"]
-                label_meta.y_offset = text_dicts[i]["y"]
-                label_meta.font_params.font_name = "Noto Serif Bold"
-                label_meta.font_params.font_size = text_dicts[i]["font_size"]
-                label_meta.font_params.font_color.set(*text_dicts[i]["font_color"])
-                label_meta.set_bg_clr= 1
-                label_meta.text_bg_clr.set(*text_dicts[i]["bg_color"])
 
-            pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+                display_meta.num_labels = len(text_dicts)
 
-            try:
-                l_frame=l_frame.next
-            except StopIteration:
-                break
+                # Ensure display_meta has enough text_params
+                if len(text_dicts) > len(display_meta.text_params):
+                    logger.error("Not enough text_params in display_meta for the number of texts")
+                    break
+                
+                for i in range(display_meta.num_labels):
+                    label_meta = display_meta.text_params[i]
+                    label_meta.display_text = text_dicts[i]["text"]
+                    label_meta.x_offset = text_dicts[i]["x"]
+                    label_meta.y_offset = text_dicts[i]["y"]
+                    label_meta.font_params.font_name = "Noto Serif Bold"
+                    label_meta.font_params.font_size = text_dicts[i]["font_size"]
+                    label_meta.font_params.font_color.set(*text_dicts[i]["font_color"])
+                    label_meta.set_bg_clr = 1
+                    label_meta.text_bg_clr.set(*text_dicts[i]["bg_color"])
+
+                pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+
+
+                try:
+                    l_frame=l_frame.next
+                except StopIteration:
+                    break
+
+        except Exception as e:
+            logger.error(f"Exception in _osd_manager_probe:  {str(e)}")
 
         return Gst.PadProbeReturn.OK
 
