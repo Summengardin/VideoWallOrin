@@ -13,14 +13,16 @@ example_text_dict = {
 
 
 class OSDManager:
-    def __init__(self, pipeline_manager):
-        self.pipeline_manager = pipeline_manager
+    def __init__(self):
         self.osd_text = ""
         self.osd_frame_number = 0
+        self.tiles = [None, None, None, None]
         self.osd_text_dicts = [{}, {}, {}]
         self.update_thread = threading.Thread(target=self._update_thread, daemon=True)
         self.update_thread.start()
         self.window_size = (1920,1080)
+
+        self._running = True
 
 
         self.osd_text_dicts[0] = {
@@ -49,6 +51,9 @@ class OSDManager:
             "font_color": (1.0, 1.0, 1.0, 1.0),
             "bg_color": (0.0, 0.0, 0.0, 0.6)
         }
+
+        for i in range(4):
+            self.tiles[i] = self.osd_text_dicts.copy()
 
 
     def add_text(self, text, x, y, font_size, color, bg_color):
@@ -79,6 +84,9 @@ class OSDManager:
 
     def get_text_dicts(self):
         return self.osd_text_dicts
+    
+    def get_tile(self, index):
+        return self.tiles[index]
 
 
     def _update_texts(self):
@@ -87,10 +95,15 @@ class OSDManager:
 
 
     def _update_thread(self):
-        while True:
+        while self._running:
             self._update_texts()
             time.sleep(0.5)
 
     def _osd_sink_pad_buffer_probe(self, pad, info, user_data):
         pass
 
+
+    def __del__(self):
+        print("\n Stopping OSD Manager")
+        self._running = False
+        self.update_thread.join()
