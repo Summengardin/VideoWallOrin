@@ -16,9 +16,9 @@ PLACEHOLDER_PATH = "VisionController/data/assets/image_placeholder.png"
 
 def decodebin_child_added(child_proxy, Object, name, user_data):
     logger.debug(f"Decodebin child added: {name}, Object: {Object}")
-    if name.find("decodebin") != -1:
+    if "decodebin" in name: 
         Object.connect("child-added", decodebin_child_added, user_data)
-    if name.find("nvv4l2decoder") != -1:
+    if "nvv4l2decoder" in name:
         Object.set_property("enable-max-performance", True)
         Object.set_property("drop-frame-interval", 0)
         Object.set_property("num-extra-surfaces", 0)
@@ -31,7 +31,7 @@ def cb_newpad(decodebin, pad, data):
     gststruct = caps.get_structure(0)
     gstname = gststruct.get_name()
 
-    if gstname.find("video") != -1:
+    if "video" in gstname:
         source_bin, index = data
         nvconvert = source_bin.get_by_name(f"src{index}-nvvideoconvert")
 
@@ -48,13 +48,13 @@ def cb_newpad(decodebin, pad, data):
 def create_uridecodebin_source_bin(index: int, uri: str) -> Gst.Bin:
     logger.debug(f"Creating uridecodebin for {uri}")
 
-    bin_name = f"src-{index}-bin"
+    bin_name = f"src{index}-bin"
 
     bin = Gst.Bin.new(bin_name)
     if not bin:
         logger.error(" Unable to create bin \n")
 
-    uridecodebin = Gst.ElementFactory.make("uridecodebin", f"source-{index}")
+    uridecodebin = Gst.ElementFactory.make("uridecodebin", f"src{index}")
     if not uridecodebin:
         logger.error(" Unable to create uri decode bin \n")
 

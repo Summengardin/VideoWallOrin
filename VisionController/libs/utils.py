@@ -1,5 +1,6 @@
 import re
 import yaml
+import math
 from fractions import Fraction
 
 from typing import Any, List
@@ -98,3 +99,21 @@ def get_center_position_of_text_on_screen(string_length: int, font_size: int, wi
     :return: The x and y coordinates of the center of the string.
     """
     return (window_x - string_length * font_size) // 2, window_y // 2 - font_size
+
+
+def build_triangle(center: tuple[int, int], radius: int, angle: float) -> List[tuple[int, int]]:
+    """
+    Build a triangle with the given center, radius, and angle.
+
+    :param center: The center of the triangle.
+    :param radius: The radius of the triangle.
+    :param angle: The angle of the triangle (in radians).
+    :return: The vertices of the triangle.
+    """
+
+    tri = []
+    for i in range(3):
+        x = center[0] + radius * math.cos(angle + i * 2 * math.pi / 3)
+        y = center[1] + radius * math.sin(angle + i * 2 * math.pi / 3)
+        tri.append((int(x), int(y)))
+    return tri

@@ -74,15 +74,26 @@ class App():
                 time.sleep(3)  
         except KeyboardInterrupt:
             pass
-        finally:
-            self.command_queue.put(None)
+        
+        logger.info("Stopping app")
+
+        logger.debug("|--> Stopping command queue")
+        self.command_queue.put(None)
 
         
+        logger.debug("|--> Stopping pipeline manager")
         self.pipeline_manager.stop()
+
+        logger.debug("|--> Stopping mqtt client")
         self.mqtt_client.stop()
 
+        logger.debug("|--> Joining handler thread")
         handler_thread.join()
+        
+        logger.debug("|--> Joining mqtt thread")
         mqtt_thread.join()
+        
+        logger.debug("|--> Joining pipeline thread")
         pipeline_thread.join()
 
         print("Done")
