@@ -43,6 +43,7 @@ class PipelineManager:
         self.sources = [Source(id=i, name=f"Source {i}") for i in range(self.max_num_sources)]
         self.active_source_ips = []
         self.osd_manager = OSDManager()
+        self.tiler_probe_ids = []
 
         self.last_num_rendered_frames = 0
         self.pipeline_pause_because_last_source = False
@@ -115,16 +116,45 @@ class PipelineManager:
 
 
     def stop(self):
-        if self.pipeline:
-            self.pipeline.set_state(Gst.State.NULL)
-            # Wait for state change to null
-            self.pipeline.get_state(Gst.CLOCK_TIME_NONE)
-
-        if self.loop:
-            self.loop.quit()
+        logger.debug("=== Pipeline stopping ===")
         
-        print("=== Pipeline stopped ===\n")
+        # if len(self.tiler_probe_ids) > 0:
+        #     print("Removing tiler probe")
+        #     tiler_sink_pad = self.tiler.get_static_pad("sink")
+        #     if not tiler_sink_pad:
+        #         logger.warning("Unable to get Tiler sink pad")
+        #     else:            
+        #         # tiler_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
+        #         for probe_id in self.tiler_probe_ids:
+        #             tiler_sink_pad = self.tiler.get_static_pad("sink")
+        #             tiler_sink_pad.remove_probe(probe_id)
+        #             print("Removed probe")
+        
+        if self.loop:
+            logger.debug("Quitting main pipeline loop")
+            self.loop.quit()
 
+        if self.pipeline:
+            # FIXME Without elemtnwise shutdown, the pipeline crashes with segmentation fault. This problemn occurs when the OSDManager is implemented.
+            self._elementwise_shutdown()
+
+            # print("Setting pipeline state to NULL")
+            # self.pipeline.set_state(Gst.State.NULL)
+            # print("Waiting for pipeline to stop")
+            # self.pipeline.get_state(Gst.CLOCK_TIME_NONE)
+        
+        if self.osd_manager:
+            print("PipelineManager: Stopping OSDManager")
+            self.osd_manager.stop()
+
+        logger.info("Pipeline stopped")
+
+    def _elementwise_shutdown(self):
+        logger.error("Setting individual elements to NULL")
+        if self.pipeline:
+            for elem in self.pipeline.iterate_elements():
+                logger.debug(f"|--> Setting {elem.get_name()} to NULL")
+                elem.set_state(Gst.State.NULL)
 
     def _set_fullscreen(self, source_id):
         if self.tiler:
@@ -239,12 +269,13 @@ class PipelineManager:
 
 
     def _add_probes(self):
-        osd_sink_pad = self.tiler.get_static_pad("sink")
-        if not osd_sink_pad:
-            logger.warning("Unable to get NVOSD sink pad")
+        tiler_sink_pad = self.tiler.get_static_pad("sink")
+        if not tiler_sink_pad:
+            logger.warning("Unable to get Tiler sink pad")
         else:            
-            # osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
-            osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_manager_probe, None)
+            # id = tiler_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
+            id = tiler_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_manager_probe, None)
+            self.tiler_probe_ids.append(id)
 
 
     def _fill_with_placeholders(self):
@@ -793,6 +824,14 @@ class PipelineManager:
             logger.warning("Unable to get GstBuffer ")
             return
 
+
+        tiles = self.osd_manager.tiles
+        
+        global moving_x
+        moving_x += 0.01
+
+        self.osd_manager.update_triangle_position(0, 0, 1920//2, 1080//2, moving_x)
+
         try: 
             batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
             l_frame = batch_meta.frame_meta_list
@@ -806,32 +845,31 @@ class PipelineManager:
                 display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta) 
                 source_id = frame_meta.source_id
                 
-                text_dicts  = [ {
-                "text": "LEFT TEXT",
-                "x": 0,
-                "y": 0,
-                "font_size": 18,
-                "font_color": (1.0, 1.0, 1.0, 1.0),
-                "bg_color": (0.0, 0.0, 0.0, 0.6)
-            },
-            {
-                "text": "RIGHT TEXT",
-                "x": 1920 // 2,
-                "y": 0,
-                "font_size": 18,
-                "font_color": (1.0, 1.0, 1.0, 1.0),
-                "bg_color": (0.0, 0.0, 0.0, 0.6)
-            },
-            {
-                "text": "MID TEXT",
-                "x": 1920 - 200,
-                "y": 0,
-                "font_size": 18,
-                "font_color": (1.0, 1.0, 1.0, 1.0),
-                "bg_color": (0.0, 0.0, 0.0, 0.6)
-            }]
-
-
+            #     text_dicts  = [ {
+            #     "text": "LEFT TEXT",
+            #     "x": 0,
+            #     "y": 0,
+            #     "font_size": 18,
+            #     "font_color": (1.0, 1.0, 1.0, 1.0),
+            #     "bg_color": (0.0, 0.0, 0.0, 0.6)
+            # },
+            # {
+            #     "text": "RIGHT TEXT",
+            #     "x": 1920 // 2,
+            #     "y": 0,
+            #     "font_size": 18,
+            #     "font_color": (1.0, 1.0, 1.0, 1.0),
+            #     "bg_color": (0.0, 0.0, 0.0, 0.6)
+            # },
+            # {
+            #     "text": "MID TEXT",
+            #     "x": 1920 - 200,
+            #     "y": 0,
+            #     "font_size": 18,
+            #     "font_color": (1.0, 1.0, 1.0, 1.0),
+            #     "bg_color": (0.0, 0.0, 0.0, 0.6)
+            # }]
+                text_dicts = tiles[source_id]["texts"].copy()
                 display_meta.num_labels = len(text_dicts)
 
                 # Ensure display_meta has enough text_params
@@ -853,6 +891,26 @@ class PipelineManager:
                 pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
 
 
+                if len(tiles[source_id]["triangles"]) > 0:
+
+                    
+
+
+                    display_meta.num_lines = len(tiles[source_id]["triangles"]) * 3
+                    triangle_dicts = tiles[source_id]["triangles"].copy()
+
+                    for i in range(display_meta.num_lines):
+                        line_params = display_meta.line_params[i]
+                        j = i // 3
+                        line_params.line_width = triangle_dicts[j]["line_width"]
+                        line_params.line_color.set(*triangle_dicts[j]["line_color"])
+                        
+                        line_params.x1, line_params.y1 = triangle_dicts[j]["vertices"][i%3]
+                        line_params.x2, line_params.y2 = triangle_dicts[j]["vertices"][i%3 - 1]
+
+
+
+                
                 try:
                     l_frame=l_frame.next
                 except StopIteration:
@@ -862,6 +920,9 @@ class PipelineManager:
             logger.error(f"Exception in _osd_manager_probe:  {str(e)}")
 
         return Gst.PadProbeReturn.OK
+    
+    def __del__(self):
+        self.stop()
 
 
 def get_triangle_points(center_x: int, center_y: int, size: int) -> Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]]:

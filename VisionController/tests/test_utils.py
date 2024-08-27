@@ -10,7 +10,8 @@ from VisionController.libs.utils import (
     float_to_fraction, 
     scale, 
     clamp, 
-    get_center_position_of_text_on_screen
+    get_center_position_of_text_on_screen,
+    build_triangle
 )
 
 def test_find_digits_in_string():
@@ -60,4 +61,6 @@ def test_get_center_position_of_text_on_screen():
     assert get_center_position_of_text_on_screen(10, 12, 800, 600) == (340, 288)
     assert get_center_position_of_text_on_screen(20, 24, 1024, 768) == (272, 360)
 
+# def test_build_triangle():
+#     assert build_triangle((0, 0), 20, 0) == [(10, 10), (20, 10), (15, 20)]
 
