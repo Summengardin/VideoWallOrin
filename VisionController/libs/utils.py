@@ -120,3 +120,28 @@ def build_triangle(center: tuple[int, int], radius: int, angle: float, angle_deg
         y = center[1] + radius * math.sin(angle + i * 2 * math.pi / 3)
         tri.append((int(x), int(y)))
     return tri
+
+
+def calculate_text_offset(text: str, font_size: int, alignment: str) -> int:
+    """
+    Calculate the offset to align text either to the right or center based on the length of the string and font size.
+
+    :param str text: The text to be aligned.
+    :param int font_size: The font size used for the text.
+    :param str alignment: The desired alignment ('center','c' or 'right','r').
+    :return: The calculated offset.
+    :rtype: int
+    """
+    # Estimate the width of the text based on its length and the font size
+    estimated_text_width = len(text) * (font_size // 1.1)
+
+    if alignment == 'center' or alignment == 'c':
+        # Calculate the offset to center the text
+        offset = -estimated_text_width // 2
+    elif alignment == 'right' or alignment == 'r':
+        # Calculate the offset to align the text to the right
+        offset = -estimated_text_width
+    else:
+        raise ValueError("Alignment must be either 'center' or 'right'.")
+
+    return int(offset)

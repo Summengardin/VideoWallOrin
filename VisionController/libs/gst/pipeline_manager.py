@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 from VisionController.libs.camera import Camera
 from VisionController.libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_placeholder_source_bin, create_videotestsrc_source_bin
-from VisionController.libs.utils import index_dataclass, scale, clamp
+from VisionController.libs.utils import index_dataclass, scale, clamp, calculate_text_offset
 from VisionController.libs.types import Source, SourceType
 from VisionController.libs.gst.osd_manager import OSDManager
 
@@ -958,7 +958,13 @@ class PipelineManager:
                     for i in range(display_meta.num_labels):
                         label_meta = display_meta.text_params[i]
                         label_meta.display_text = text_dicts[i]["text"]
-                        label_meta.x_offset = text_dicts[i]["x"]
+
+
+                        x_off = 0
+                        if text_dicts[i]['alignment'] is not None:
+                            x_off = calculate_text_offset(text_dicts[i]["text"], text_dicts[i]["font_size"], text_dicts[i]['alignment'])
+                        
+                        label_meta.x_offset = text_dicts[i]["x"] + x_off
                         label_meta.y_offset = text_dicts[i]["y"]
                         label_meta.font_params.font_name = text_dicts[i]["font_name"]
                         label_meta.font_params.font_size = text_dicts[i]["font_size"]
