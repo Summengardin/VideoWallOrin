@@ -101,7 +101,7 @@ def get_center_position_of_text_on_screen(string_length: int, font_size: int, wi
     return (window_x - string_length * font_size) // 2, window_y // 2 - font_size
 
 
-def build_triangle(center: tuple[int, int], radius: int, angle: float) -> List[tuple[int, int]]:
+def build_triangle(center: tuple[int, int], radius: int, angle: float, angle_deg = True) -> List[tuple[int, int]]:
     """
     Build a triangle with the given center, radius, and angle.
 
@@ -110,6 +110,9 @@ def build_triangle(center: tuple[int, int], radius: int, angle: float) -> List[t
     :param angle: The angle of the triangle (in radians).
     :return: The vertices of the triangle.
     """
+
+    if angle_deg:
+        angle = math.radians(angle)
 
     tri = []
     for i in range(3):
