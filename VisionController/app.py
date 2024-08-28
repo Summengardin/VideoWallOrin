@@ -189,15 +189,21 @@ class App():
 
         elif subcommand == 'Zoom':
             self._run_with_timeout(self._update_source_feature, args=(source_id, 'zoom'), kwargs={'value': float(payload)})
+            self.pipeline_manager.osd_manager[source_id].upsert_text(f"Zoom: {payload}", "feature", 940, 980, 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 5)
+            self.pipeline_manager.osd_manager[source_id].upsert_triangle("viewport", 1920//2, 1080//2, 50+500*float(payload), 10, (1.0, 1.0, 1.0, 1.0), -90, 5)
+
 
         elif subcommand == 'Exposure':
             self._run_with_timeout(self._update_source_feature, args=(source_id, 'exposure_time'), kwargs={'value': float(payload)})
+            self.pipeline_manager.osd_manager[source_id].upsert_text(f"Exposure Time: {payload}", "feature", 940, 980, 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 5)
 
         elif subcommand == 'ExposureAuto':
             self._run_with_timeout(self._update_source_feature, args=(source_id, 'exposure_time_auto'), kwargs={'value': int(payload)})
+            self.pipeline_manager.osd_manager[source_id].upsert_text(f"Exposure Auto: {payload}", "feature", 940, 980, 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 5)
 
         elif subcommand == 'Gain':
             self._run_with_timeout(self._update_source_feature, args=(source_id, 'gain'), kwargs={'value': float(payload)})
+            self.pipeline_manager.osd_manager[source_id].upsert_text(f"Gain: {payload}", "feature", 940, 980, 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 5)
 
 
     def _update_source_feature(self, source_id: int, feature, value):

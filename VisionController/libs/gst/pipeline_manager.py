@@ -42,7 +42,7 @@ class PipelineManager:
         self.num_sources = 0
         self.sources = [Source(id=i, name=f"Source {i}") for i in range(self.max_num_sources)]
         self.active_source_ips = []
-        self.osd_manager = OSDManager()
+        self.osd_manager = [OSDManager((1920, 1080)) for _ in range(self.max_num_sources)] 
         self.tiler_probe_ids = []
 
         self.last_num_rendered_frames = 0
@@ -143,9 +143,9 @@ class PipelineManager:
             # print("Waiting for pipeline to stop")
             # self.pipeline.get_state(Gst.CLOCK_TIME_NONE)
         
-        if self.osd_manager:
-            print("PipelineManager: Stopping OSDManager")
-            self.osd_manager.stop()
+        logger.debug("Stopping OSD managers")
+        for osd_manager in self.osd_manager:
+            osd_manager.stop()
 
         logger.info("Pipeline stopped")
 
@@ -824,13 +824,10 @@ class PipelineManager:
             logger.warning("Unable to get GstBuffer ")
             return
 
-
-        tiles = self.osd_manager.tiles
         
         global moving_x
         moving_x += 0.01
 
-        self.osd_manager.update_triangle_position(0, 0, 1920//2, 1080//2, moving_x)
 
         try: 
             batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
@@ -844,6 +841,8 @@ class PipelineManager:
 
                 display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta) 
                 source_id = frame_meta.source_id
+
+                osd_manager = self.osd_manager[source_id]
                 
             #     text_dicts  = [ {
             #     "text": "LEFT TEXT",
@@ -869,47 +868,49 @@ class PipelineManager:
             #     "font_color": (1.0, 1.0, 1.0, 1.0),
             #     "bg_color": (0.0, 0.0, 0.0, 0.6)
             # }]
-                text_dicts = tiles[source_id]["texts"].copy()
-                display_meta.num_labels = len(text_dicts)
 
-                # Ensure display_meta has enough text_params
-                if len(text_dicts) > len(display_meta.text_params):
-                    logger.error("Not enough text_params in display_meta for the number of texts")
-                    break
-                
-                for i in range(display_meta.num_labels):
-                    label_meta = display_meta.text_params[i]
-                    label_meta.display_text = text_dicts[i]["text"]
-                    label_meta.x_offset = text_dicts[i]["x"]
-                    label_meta.y_offset = text_dicts[i]["y"]
-                    label_meta.font_params.font_name = "Noto Serif Bold"
-                    label_meta.font_params.font_size = text_dicts[i]["font_size"]
-                    label_meta.font_params.font_color.set(*text_dicts[i]["font_color"])
-                    label_meta.set_bg_clr = 1
-                    label_meta.text_bg_clr.set(*text_dicts[i]["bg_color"])
+                texts = osd_manager.get_all_texts()
+                if len(texts) > 0:
 
-                pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+                    display_meta.num_labels = len(texts)
+                    text_dicts = texts.copy()
+
+                    for i in range(display_meta.num_labels):
+                        label_meta = display_meta.text_params[i]
+                        label_meta.display_text = text_dicts[i]["text"]
+                        label_meta.x_offset = text_dicts[i]["x"]
+                        label_meta.y_offset = text_dicts[i]["y"]
+                        label_meta.font_params.font_name = text_dicts[i]["font_name"]
+                        label_meta.font_params.font_size = text_dicts[i]["font_size"]
+                        label_meta.font_params.font_color.set(*text_dicts[i]["font_color"])
+                        label_meta.set_bg_clr = 1
+                        label_meta.text_bg_clr.set(*text_dicts[i]["bg_color"])
 
 
-                if len(tiles[source_id]["triangles"]) > 0:
+                lines = osd_manager.get_all_lines_as_dicts()
+                if len(lines) > 0:
 
+                    display_meta.num_lines = len(lines)
                     
-
-
-                    display_meta.num_lines = len(tiles[source_id]["triangles"]) * 3
-                    triangle_dicts = tiles[source_id]["triangles"].copy()
-
                     for i in range(display_meta.num_lines):
                         line_params = display_meta.line_params[i]
-                        j = i // 3
-                        line_params.line_width = triangle_dicts[j]["line_width"]
-                        line_params.line_color.set(*triangle_dicts[j]["line_color"])
-                        
-                        line_params.x1, line_params.y1 = triangle_dicts[j]["vertices"][i%3]
-                        line_params.x2, line_params.y2 = triangle_dicts[j]["vertices"][i%3 - 1]
+                        line_params.x1 = lines[i]['x1']
+                        line_params.y1 = lines[i]['y1']
+                        line_params.x2 = lines[i]['x2']
+                        line_params.y2 = lines[i]['y2']
+                        line_params.line_width = lines[i]['line_width']
+                        line_params.line_color.set(*lines[i]['line_color'])
 
 
+                # # Parameters for the warning triangle
+                # offset_x = 100  # X-coordinate of the bottom left vertex of the triangle
+                # offset_y = 100  # Y-coordinate of the bottom left vertex of the triangle
+                # base_length = 200  # Length of the base of the triangle
 
+                # display_meta = draw_warning_triangle(self.nvosd, display_meta, offset_x, offset_y, base_length)
+
+
+                pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
                 
                 try:
                     l_frame=l_frame.next
@@ -953,3 +954,52 @@ def get_center_position(string_length, font_size, window_x, window_y):
     y = (window_y - font_size) // 2
     
     return int(x), y
+
+
+
+def draw_warning_triangle(nvosd, display_meta, offset_x, offset_y, base_length):
+    # Calculate triangle height based on equilateral triangle properties
+    height = (math.sqrt(3) / 2) * base_length
+    
+    # Define the vertices of the triangle (offset by the given x, y)
+    vertices = [
+        (int(offset_x), int(offset_y)),  # Bottom left
+        (int(offset_x + base_length), int(offset_y)),  # Bottom right
+        (int(offset_x + base_length // 2), int(offset_y + height))  # Top center
+    ]
+    
+    # Draw the triangle using three lines
+    display_meta.num_lines = display_meta.num_lines + 3
+
+    line_params1 = display_meta.line_params[display_meta.num_lines - 3]
+    line_params1.x1, line_params1.y1 = vertices[0]
+    line_params1.x2, line_params1.y2 = vertices[1]
+    line_params1.line_width = 2
+    line_params1.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
+
+    line_params2 = display_meta.line_params[display_meta.num_lines - 2]
+    line_params2.x1, line_params2.y1 = vertices[1]
+    line_params2.x2, line_params2.y2 = vertices[2]
+    line_params2.line_width = 2
+    line_params2.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
+
+    line_params3 = display_meta.line_params[display_meta.num_lines - 1]
+    line_params3.x1, line_params3.y1 = vertices[2]
+    line_params3.x2, line_params3.y2 = vertices[0]
+    line_params3.line_width = 2
+    line_params3.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
+    
+    display_meta.num_circles = display_meta.num_circles + 1
+    
+    # Calculate the center of the triangle for the circle
+    circle_center_x = int(offset_x + base_length // 2)
+    circle_center_y = int(offset_y + height // 3)
+
+    # Draw the circle
+    circle_params = display_meta.circle_params[display_meta.num_circles - 1]
+    circle_params.xc = circle_center_x
+    circle_params.yc = circle_center_y
+    circle_params.radius = base_length // 10
+    circle_params.circle_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
+
+    return display_meta
