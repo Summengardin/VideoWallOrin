@@ -2,7 +2,8 @@ import re
 import yaml
 import math
 from fractions import Fraction
-
+from shapely.geometry import LineString, Point, Polygon
+import numpy as np
 from typing import Any, List
 
 
@@ -145,3 +146,82 @@ def calculate_text_offset(text: str, font_size: int, alignment: str) -> int:
         raise ValueError("Alignment must be either 'center' or 'right'.")
 
     return int(offset)
+
+
+def check_points_inside_frame(vertices: List[tuple[int, int]], window_x: int, window_y: int) -> bool:
+    """
+    Check if the vertices are inside the frame.
+
+    :param vertices: The vertices to check.
+    :param window_x: The x-coordinate of the window.
+    :param window_y: The y-coordinate of the window.
+    :return: True if the vertices are inside the frame, False otherwise.    
+    """
+
+    # Create the frame polygon
+    frame_polygon = Polygon([(0, 0), (window_x, 0), (window_x, window_y), (0, window_y)])
+
+    # Check if the vertices are inside the frame
+    for vertex in vertices:
+        if not frame_polygon.contains(Point(vertex)):
+            return False
+    return True
+
+def move_vertices_inside_frame(vertices: List[tuple[int, int]], frame: tuple[int, int, int, int]) -> List[tuple[int, int]]:
+    """
+    Check if the vertices are inside the frame and create new vertices at the intersection points.
+
+    :param vertices: List of tuples representing the vertices of the shape [(x1, y1), (x2, y2), ...]
+    :param frame: Tuple representing the frame (x_min, y_min, x_max, y_max)
+    :return: List of updated vertices
+    """
+    x_min, y_min, x_max, y_max = frame
+
+    # Create the frame polygon
+    frame_polygon = Polygon([(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)])
+
+    updated_vertices = []
+
+    # Convert frame edges to a list
+    frame_edges = list(frame_polygon.exterior.coords)
+
+    # Loop through the edges of the shape
+    for i in range(len(vertices)):
+        # Get the current and next vertex (to form a line segment)
+        start_vertex = Point(vertices[i])
+        end_vertex = Point(vertices[(i + 1) % len(vertices)])
+
+        # Check if both points are inside the frame
+        if frame_polygon.contains(start_vertex) and frame_polygon.contains(end_vertex):
+            updated_vertices.append((start_vertex.x, start_vertex.y))
+
+        else:
+            # If any point is outside, create a line segment and find intersections with frame
+            line = LineString([start_vertex, end_vertex])
+            
+            # Add starting vertex if it is inside the frame
+            if frame_polygon.contains(start_vertex):
+                updated_vertices.append((start_vertex.x, start_vertex.y))
+            
+            # Find intersections with frame borders
+            for j in range(len(frame_edges) - 1):  # Loop through frame edges
+                edge_start = Point(frame_edges[j])
+                edge_end = Point(frame_edges[(j + 1) % len(frame_edges)])
+                frame_line = LineString([edge_start, edge_end])
+                
+                # Check for intersection between shape edge and frame edge
+                if line.intersects(frame_line):
+                    intersection = line.intersection(frame_line)
+                    if not intersection.is_empty:
+                        updated_vertices.append((intersection.x, intersection.y))
+            
+            # Add ending vertex if it is inside the frame
+            if frame_polygon.contains(end_vertex):
+                updated_vertices.append((end_vertex.x, end_vertex.y))
+
+    return updated_vertices
+
+
+
+        
+

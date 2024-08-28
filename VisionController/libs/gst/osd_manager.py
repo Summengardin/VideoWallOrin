@@ -1,7 +1,10 @@
-from VisionController.libs.utils import build_triangle, calculate_text_offset
+from VisionController.libs.utils import build_triangle, check_points_inside_frame, move_vertices_inside_frame
 import time
 import threading
 from typing import Tuple, List, Dict, Any, Optional
+import math
+from itertools import pairwise
+
 
 import logging
 logger = logging.getLogger(__name__)
@@ -54,6 +57,8 @@ class Triangle:
             f"Updating triangle at ({self.x}, {self.y}) with radius {self.radius} and angle {self.angle}")
         self.vertices = build_triangle(
             (self.x, self.y), self.radius, self.angle)
+        
+        self.vertices = move_vertices_inside_frame(self.vertices, (0, 0, 1920, 1080))
 
     def to_lines(self) -> List[Line]:
         lines = []
@@ -89,9 +94,9 @@ class Polygon:
 class OSDManager:
     def __init__(self, window_size: Tuple[int, int] = (1920, 1080)):
         self.window_size = window_size
-        self.elements = {}  # A dictionary to store all elements by ID
+        self.elements = {}
         self._running = False
-        self._id_counter = 0  # Universal ID counter
+        self._id_counter = 0
         self.start()
 
         self.default_text_color = (1.0, 1.0, 1.0, 1.0)
@@ -115,7 +120,6 @@ class OSDManager:
     def stop(self):
         """Stop the update thread."""
         self._running = False
-        # Ensure the thread has finished execution
         self.update_thread.join(timeout=1)
 
     def _update(self):
@@ -127,7 +131,6 @@ class OSDManager:
     def __del__(self):
         self.stop()
 
-    # Public Methods for Managing Shapes and Text with Timeout
     def add_triangle(self, x: int, y: int, radius: int, line_width: int, line_color: Tuple[float, float, float, float], angle: float = 0, timeout: Optional[float] = None, triangle_id: Optional[str] = None) -> int:
         # vertices = build_triangle((x, y), radius, angle)
         if triangle_id is None:
