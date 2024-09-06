@@ -103,7 +103,8 @@ class OSDManager:
         self.default_line_color = (1.0, 0.0, 0.0, 1.0)
         self.default_bg_color = (0.0, 0.0, 0.0, 0.6)
         self.default_font_size = 18
-        self.default_font_name = "Noto Serif Bold"
+        # self.default_font_name = "Noto Serif Bold"
+        self.default_font_name = "Proxima Nova Bold"
 
     def _generate_id(self) -> str:
         """Generate a unique ID."""
@@ -165,7 +166,7 @@ class OSDManager:
                 "font_size": font_size if font_size else self.default_font_size,
                 "font_color": color if color else self.default_text_color,
                 "bg_color": bg_color if bg_color else self.default_bg_color,
-                "font_name": "Noto Serif Bold"
+                "font_name": self.default_font_name
             },
             "timeout": time.time() + timeout if timeout else None
         }

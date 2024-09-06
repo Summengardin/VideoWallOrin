@@ -36,7 +36,7 @@ class App():
         self.general_config = self.config['general']
 
         self.command_queue = queue.Queue()
-        self.executor = ThreadPoolExecutor(max_workers=4)
+        self.executor = ThreadPoolExecutor(max_workers=1)
         
         self.topics = self._build_mqtt_topics(self.mqtt_config)
         self.mqtt_client = MQTTClient(self.mqtt_config.get('broker'), self.mqtt_config.get('port'), self.topics)
@@ -172,12 +172,6 @@ class App():
                             logger.error(f"Adding placeholder source {source_id} timed out")
                     
 
-                    self.pipeline_manager.osd_manager[source_id].upsert_text(f"{self.pipeline_manager.sources[source_id].cam_id} - {self.pipeline_manager.sources[source_id].name}", "upper left", 0, 0, None, 18)
-                    self.pipeline_manager.osd_manager[source_id].upsert_text(f"{self.pipeline_manager.sources[source_id].ip}", "upper right", 1920, 0, 'r', 18)
-
-
-
-
                 except Exception as e:
                     logger.error(f"Could not add source {source_id}. Error: {e}")
                     success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
@@ -195,11 +189,14 @@ class App():
                 except Exception as e:
                     logger.error(f"Could not stop releasing source {source_id}")
 
+            self.pipeline_manager.osd_manager[source_id].upsert_text(f"{self.pipeline_manager.sources[source_id].cam_id} - {self.pipeline_manager.sources[source_id].name}", "upper left", 0, 0, None, 18)
+            self.pipeline_manager.osd_manager[source_id].upsert_text(f"{self.pipeline_manager.sources[source_id].ip}", "upper right", 1920, 0, 'r', 18)
+
         elif subcommand == 'Zoom':
             value = float(payload)
 
             self._run_with_timeout(self._update_source_feature, args=(source_id, 'zoom'), kwargs={'value': value})
-            self.pipeline_manager.osd_manager[source_id].upsert_text(f"Zoom: {value:.2f}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
+            self.pipeline_manager.osd_manager[source_id].upsert_text(f"Zoom: {value:.2f}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0), 2)
             self.pipeline_manager.osd_manager[source_id].upsert_triangle("viewport", 1920//2, 1080//2, 50+600*float(payload), 10, (1.0, 1.0, 1.0, 1.0), -90, 2)
 
 
@@ -229,7 +226,16 @@ class App():
             if feature == "exposure_time_auto":
                 
                 source.camera.exposure_time_auto = 'Off' if value == 0 else 'Continuous'
-                return self.pipeline_manager.set_exposure_auto_source(source.id, source.camera.exposure_time_auto)
+                
+                ret_val = self.pipeline_manager.set_exposure_auto_source(source.id, source.camera.exposure_time_auto)
+
+                if source.camera.exposure_time_auto != 'Off':
+                    self.pipeline_manager.set_target_brightness_source(source.id, source.camera.exposure_time)
+                
+                self.pipeline_manager.set_exposure_time_source(source.id, source.camera.exposure_time) 
+
+                return ret_val
+
 
             elif feature == "exposure_time":
                 source.camera.exposure_time = value
@@ -311,9 +317,18 @@ class App():
         elif command == 'Type':
             camera.type = payload
             camera.has_zoom = payload != 'Basler'
-
             if camera.type == "Compressed":
-                self._run_with_timeout(camera.set_controller, args=(ViscaController(camera.ip, 1000),))
+                try: 
+                    controller = ViscaController(camera.ip, 1000)
+                    self._run_with_timeout(camera.set_controller, args=(controller,))
+                except OSError as e:
+                    if e.errno == 113:
+                        logger.error(f"Camera {camera.ip} not found")
+                    else:
+                        raise
+                    
+                
+            
         elif command == 'Name':
             camera.name = payload
         elif command == 'Width':
@@ -341,13 +356,14 @@ class App():
             self.pipeline_manager.tiler_columns = int(payload)
 
 
-    def _run_with_timeout(self, func, args=(), kwargs={}, timeout=30):
+    def _run_with_timeout(self, func, args=(), kwargs={}, timeout=3):
         """Runs a function asynchronously with a timeout."""
         logger.debug(f"Running {func.__name__} with timeout {timeout}")
-        future = self.executor.submit(func, *args, **kwargs)
-
+        # future = self.executor.submit(func, *args, **kwargs)
+        
         try:
-            result = future.result(timeout=timeout)
+            result = func(*args, **kwargs)
+            # result = future.result(timeout=timeout)
             return result
         except TimeoutError:
             logger.error(f"Function {func.__name__} timed out")
@@ -355,6 +371,9 @@ class App():
         except Exception as e:
             logger.error(f"Function {func.__name__} raised an exception: {e}")
             # raise e
+        except:
+            logger.error(f"Function {func.__name__} raised an unknown exception")
+            # raise
 
 
     def _cb_mqtt_on_message(self, client, userdata, message):

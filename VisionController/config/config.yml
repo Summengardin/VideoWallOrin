@@ -2,8 +2,9 @@ general:
   visca_port: 1000
 
 mqtt:
-  broker: '192.168.181.204'
+  # broker: '192.168.181.204'
   # broker: '192.168.180.13'
+  broker: 10.1.3.180  
   port: 1883
 
   # Following are topics. Some topics have an optional qos parameter. Default is 0.
