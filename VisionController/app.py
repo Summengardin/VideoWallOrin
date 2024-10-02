@@ -313,7 +313,12 @@ class App():
             camera.has_zoom = payload != 'Basler'
 
             if camera.type == "Compressed":
-                self._run_with_timeout(camera.set_controller, args=(ViscaController(camera.ip, 1000),))
+                try: 
+                    controller = ViscaController(camera.ip, 1000)
+                    self._run_with_timeout(camera.set_controller, args=(ViscaController(camera.ip, 1000),))
+                except OSError as e:
+                    logger.warning(f"Camera {camera.ip}: Failed to connect visca controller: {e}")
+
         elif command == 'Name':
             camera.name = payload
         elif command == 'Width':
@@ -341,7 +346,7 @@ class App():
             self.pipeline_manager.tiler_columns = int(payload)
 
 
-    def _run_with_timeout(self, func, args=(), kwargs={}, timeout=30):
+    def _run_with_timeout(self, func, args=(), kwargs={}, timeout=5):
         """Runs a function asynchronously with a timeout."""
         logger.debug(f"Running {func.__name__} with timeout {timeout}")
         future = self.executor.submit(func, *args, **kwargs)

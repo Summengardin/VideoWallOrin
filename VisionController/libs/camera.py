@@ -8,6 +8,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+
+
 @dataclass
 class Camera:
     id: int = None
@@ -45,6 +47,25 @@ class Camera:
             return False
         return True
     
+
+    def set_brightness(self, brightness: float, controller):
+        """Sets the brightness of the camera
+        :param brightness: 0.0 to 1.0
+
+        :param controller: The controller to apply to the camera
+        :type controller: ViscaController for Z3 cameras, PipelineManager for Basler / TheImagingSource cameras, and AxisCamera for Axis cameras
+
+        :return: True if the brightness was set successfully, False otherwise
+        :rtype: bool
+        """
+        if self.type == "Compressed":
+            return self.visca_controller.set_brightness(brightness)
+        if not isinstance(brightness, float) or brightness < 0.0 or brightness > 1.0:
+            raise ValueError('The brightness must be a float between 0.0 and 1.0 inclusive')
+
+        brightness = scale(brightness, to_min=0.0, to_max=1.0)
+        brightness = int(brightness * 255)
+
 
     def __del__(self):
         if self.visca_controller is not None:
