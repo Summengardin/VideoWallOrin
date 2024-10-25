@@ -1,12 +1,18 @@
 import gi
 import numpy as np
 import cv2
+import socket
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstRtspServer', '1.0')
 from gi.repository import Gst, GstRtspServer, GLib
 
 Gst.init(None)
+
+def get_ips():
+    local_hostname = socket.gethostname()
+    ip_addresses = socket.gethostbyname_ex(local_hostname)[2]
+    return ip_addresses
 
 class SensorFactory(GstRtspServer.RTSPMediaFactory):
     def __init__(self, width=640, height=480, fps=30, **properties):
@@ -18,13 +24,13 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
         self.frame = None
         self.launch_string = (
             'appsrc name=source is-live=true block=true format=GST_FORMAT_TIME '
-            f'caps=video/x-raw,format=BGRx,width={self.width},height={self.height},framerate={self.fps}/1 '
+            f'caps=video/x-raw,format=BGR,width={self.width},height={self.height},framerate={self.fps}/1 '
             # '! videoconvert ! x264enc speed-preset=ultrafast tune=zerolatency '
-            '! nvvideoconvert ! nvv4l2h264enc ! h264parse '
+            '! nvvideoconvert compute-hw=1 ! nvv4l2h264enc ! h264parse '
             '! rtph264pay config-interval=1 name=pay0 pt=96'
         )
 
-        self.dummy_frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        self.dummy_frame = np.zeros((self.height, self.width, 4), dtype=np.uint8)
 
     def set_frame(self, frame):
         self.frame = frame
@@ -62,35 +68,42 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
 class GstServer:
     def __init__(self):
         self.server = GstRtspServer.RTSPServer()
+        self.port = "8554"
+        self.mount = "test"
+
         self.factory = SensorFactory()
         self.factory.set_shared(True)
         self.mounts = self.server.get_mount_points()
-        self.mounts.add_factory("/test", self.factory)
+        self.mounts.add_factory(f"/{self.mount}", self.factory)
+        self.server.set_service(str(self.port))
         self.server.attach(None)
 
-    def run(self):
-        loop = GLib.MainLoop()
-        loop.run()
+        print("Stream is running on: ")
+        for ip in get_ips():
+            print(f"    rtsp://{ip}:{self.port}/{self.mount}")
 
 
 if __name__ == "__main__":
     server = GstServer()
-    print("RTSP server is running at rtsp://127.0.0.1:8554/test")
 
-    # cap = cv2.VideoCapture(0)  # Use OpenCV to capture video from a camera
-    while True:
-        # ret, frame = cap.read()
-        frame = np.random.randint(0, 256, (480, 640, 4), dtype=np.uint8)
-        ret = True
+    # cap = cv2.VideoCapture(0) 
+    try:
+        while True:
+            # ret, frame = cap.read()
+            frame = np.random.randint(0, 256, (480, 640, 3), dtype=np.uint8) # BGRx
+            ret = True
 
-        if not ret:
-            break
-        
-        # Provide frame to RTSP factory
-        server.factory.set_frame(frame)
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
+            if not ret:
+                break
+            
+            # Pass frame to RTSP stream
+            server.factory.set_frame(frame)
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break   
+    except KeyboardInterrupt:
+        pass
     # cap.release()
     cv2.destroyAllWindows()
+
+    print("\n\nGoodbye!")
