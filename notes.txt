@@ -1,0 +1,43 @@
+gst-launch-1.0 shmsrc socket-path=/tmp/vw-rtsp-pipe ! video/x-raw,width=640,height=480,framerate=15/1,format=NV12 !  autovideosink sync=false
+
+gst-launch-1.0 videotestsrc ! "video/x-raw,width=3840,height=2160,framerate=200/1,format=NV12" ! videoconvert ! video/x-raw,width=640,height=480,framerate=30/1,format=YUY2 ! videoconvert ! autovideosink sync=false
+
+
+
+
+# HIKVISION
+gst-launch-1.0 -v rtspsrc location=rtsp://admin:seaonics%21@10.1.3.61:554/Streaming/channels/101 ! application/x-rtp, payload=96 ! rtph264depay ! avdec_h264 ! videoconvert ! autovideosink sync=false
+
+gst-launch-1.0 uridecodebin uri=rtsp://admin:seaonics%21@10.1.3.61:554/Streaming/channels/101 ! videoconvert ! xvimagesink sync=false
+
+
+
+# AXIS
+export AXIS_URI=rtsp://root:root@192.168.0.90/axis-media/media.amp?streamprofile=stream-1
+
+gst-launch-1.0 uridecodebin uri=rtsp://root:root@192.168.0.90/axis-media/media.amp?streamprofile=stram-1 ! nv3dsink sync=false
+
+gst-launch-1.0 uridecodebin uri=$AXIS_URI caps="video/x-raw(memory:NVMM), width=1920, height=1080, format=NV12" ! nv3dsink sync=false
+
+gst-launch-1.0 uridecodebin uri=$AXIS_URI caps="video/x-raw(memory:NVMM), width=1920, height=1080, format=NV12" ! nv3dsink sync=false
+
+gst-launch-1.0 -v rtspsrc location=$AXIS_URI latency=0 ! application/x-rtp, payload=96 ! rtph265depay ! queue leaky=2 max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! nvv4l2decoder enable-max-performance=1 ! nv3dsink sync=false
+
+gst-launch-1.0 rtspsrc location=$AXIS_URI latency=0 ! application/x-rtp, payload=96 ! rtph265depay ! queue leaky=2 max-size-buffers=1 max-size-bytes=0 max-size-time=0  ! nvv4l2decoder enable-max-performance=1 ! nvvidconv ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! nv3dsink sync=false
+
+
+
+# Z3
+export Z3_URI=rtsp://10.1.3.74/stream-1.sdp
+
+gst-launch-1.0 rtspsrc location=$Z3_URI latency=0 ! application/x-rtp, payload=96 ! rtph265depay ! queue leaky=2 max-size-buffers=1 max-size-bytes=0 max-size-time=0  ! nvv4l2decoder enable-max-performance=1 ! nvvidconv ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! nv3dsink sync=false
+
+
+
+# Dummy
+	# RTSP Stream
+	gst-launch-1.0 videotestsrc ! x264enc ! h264parse ! rtph264pay pt=96 name=pay0 ! udpsink host=127.0.0.1 port=5000"
+	
+	# RTSP Consume
+	gst-launch-1.0 -v rtspsrc location=rtsp://127.0.0.1:5000/test 
+	
