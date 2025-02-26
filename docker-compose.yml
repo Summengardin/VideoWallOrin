@@ -5,7 +5,8 @@
 
 services:
   videowall:
-    image: videowallorin
+    # image: videowallorin
+    image: vwvisioncontroller
     runtime: nvidia
     command: sh
     deploy:

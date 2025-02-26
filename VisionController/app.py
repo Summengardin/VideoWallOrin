@@ -13,11 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 from visca_over_ip.camera import Camera as ViscaController
-from VisionController.libs.gst.pipeline_manager import PipelineManager
+from VisionController.libs.gst.pipeline_manager_ import PipelineManager
 from VisionController.libs.mqtt.mqtt_client_ import MQTTClient
+from VisionController.libs.mqtt.mqtt_helper import load_mqtt_topics
 from VisionController.libs.utils import index_dataclass, parse_config, find_digits_in_string
 from VisionController.libs.camera import Camera
 from VisionController.libs.types import Source, SourceType
+from VisionController.libs.gui.gst_window import GstWindow
 
 
 Gst.init(None)
@@ -25,9 +27,16 @@ Gst.init(None)
 seq_step = 0
 add_remove = 1
 
+
+
+
+
 class App():
 
     def __init__(self, config_file):
+
+
+
 
         self.config_file = config_file
         self.config = parse_config(config_file)
@@ -38,9 +47,11 @@ class App():
         self.command_queue = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=4)
         
-        self.topics = self._build_mqtt_topics(self.mqtt_config)
+        self.topics = load_mqtt_topics(self.mqtt_config)
         self.mqtt_client = MQTTClient(self.mqtt_config.get('broker'), self.mqtt_config.get('port'), self.topics)
         self.mqtt_client.set_on_message_callback(self._cb_mqtt_on_message)
+
+
 
         self.pipeline_manager = PipelineManager(self.pipeline_config)
 
@@ -52,28 +63,31 @@ class App():
         self._test_zoom_dir = 1
 
 
+        # Store thread references
+        self.pipeline_thread = None
+        self.handler_thread = None
+        self.mqtt_thread = None
+
+
+
     def run(self):
 
-        pipeline_thread = threading.Thread(target=self.pipeline_manager.start)
-        pipeline_thread.start()
+        self.pipeline_thread = threading.Thread(target=self.pipeline_manager.start)
+        self.pipeline_thread.start()
 
         time.sleep(1)
 
 
-        handler_thread = threading.Thread(target=self._mqtt_command_handler)
-        handler_thread.start()
+
+        self.handler_thread = threading.Thread(target=self._mqtt_command_handler)
+        self.handler_thread.start()
     
 
-        mqtt_thread = threading.Thread(target=self.mqtt_client.start)
-        mqtt_thread.start()
+        self.mqtt_thread = threading.Thread(target=self.mqtt_client.start)
+        self.mqtt_thread.start()
 
 
-        try:
-            while True:
-                # self._zoom_visca_tester()
-                time.sleep(3)  
-        except KeyboardInterrupt:
-            pass
+    def stop(self):
         
         logger.info("Stopping app")
 
@@ -88,15 +102,18 @@ class App():
         self.mqtt_client.stop()
 
         logger.debug("|--> Joining handler thread")
-        handler_thread.join()
+        self.handler_thread.join()
         
         logger.debug("|--> Joining mqtt thread")
-        mqtt_thread.join()
+        self.mqtt_thread.join()
         
         logger.debug("|--> Joining pipeline thread")
-        pipeline_thread.join()
+        self.pipeline_thread.join()
 
-        print("Done")
+        logger.info("All threads joined")
+        
+
+        print("Goodbye!")
 
 
     def _zoom_visca_tester(self):
@@ -366,40 +383,6 @@ class App():
         payload = message.payload.decode('utf-8')
         self.command_queue.put((message.topic, payload))
         logger.debug(f"Queued:    {message.topic}: {payload}")
-
-
-    def _build_mqtt_topics(self, mqtt_config):
-        cameras = mqtt_config.get('cameras')
-        camera_subtopics = mqtt_config.get('camera_subtopics')
-        vision_controllers = mqtt_config.get('vision_controllers')
-        vision_controller_subtopics = mqtt_config.get('vision_controller_subtopics')
-        tile_subtopics = mqtt_config.get('tile_subtopics')
-
-        topics = []
-        for camera in cameras:
-            for subtopic in camera_subtopics:
-                if type(subtopic) is dict:
-                    topic = subtopic.keys()[0]
-                    qos = subtopic.values()[0]
-                    topics.append((f"Cameras/{camera}/{topic}", qos))
-                else:
-                    topics.append((f"Cameras/{camera}/{subtopic}", 0))
-
-        for vision_controller in vision_controllers:
-            for subtopic in vision_controller_subtopics:  
-                if isinstance(subtopic, dict):
-                    topic = list(subtopic.keys())[0]
-                    qos = subtopic[topic]
-                    topics.append((f"VisionControllers/{vision_controller}/{topic}", qos))
-                else:
-                    topics.append((f"VisionControllers/{vision_controller}/{subtopic}", 0))
-
-            for tile_id in ['01', '02', '03', '04']:
-                    for subtopic in tile_subtopics:
-                        topics.append((f"VisionControllers/{vision_controller}/Tile{tile_id}/{subtopic}", 0))
-
-        return topics
-
 
 
 

@@ -2,6 +2,7 @@ import gi
 import numpy as np
 import cv2
 import socket
+import time
 
 gi.require_version('Gst', '1.0')
 gi.require_version('GstRtspServer', '1.0')
@@ -15,7 +16,7 @@ def get_ips():
     return ip_addresses
 
 class SensorFactory(GstRtspServer.RTSPMediaFactory):
-    def __init__(self, width=640, height=480, fps=30, **properties):
+    def __init__(self, width=1920, height=1080, fps=60, **properties):
         super(SensorFactory, self).__init__(**properties)
         self.number_frames = 0
         self.fps = fps
@@ -24,10 +25,10 @@ class SensorFactory(GstRtspServer.RTSPMediaFactory):
         self.frame = None
         self.launch_string = (
             'appsrc name=source is-live=true block=true format=GST_FORMAT_TIME '
-            f'caps=video/x-raw,format=BGR,width={self.width},height={self.height},framerate={self.fps}/1 '
+            f'caps=video/x-raw,format=BGRx,width={self.width},height={self.height},framerate={self.fps}/1 '
             # '! videoconvert ! x264enc speed-preset=ultrafast tune=zerolatency '
-            '! nvvideoconvert compute-hw=1 ! nvv4l2h264enc ! h264parse '
-            '! rtph264pay config-interval=1 name=pay0 pt=96'
+            '! nvvideoconvert compute-hw=1 ! nvv4l2h265enc ! h265parse '
+            '! rtph265pay config-interval=1 name=pay0 pt=96'
         )
 
         self.dummy_frame = np.zeros((self.height, self.width, 4), dtype=np.uint8)
@@ -83,6 +84,15 @@ class GstServer:
             print(f"    rtsp://{ip}:{self.port}/{self.mount}")
 
 
+running = True
+start_time = time.time()
+def format_time(seconds):
+    milliseconds = int((seconds - int(seconds)) * 10000)  # Four decimal places
+    minutes, seconds = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    return "%02d:%02d:%02d.%04d" % (hours, minutes, seconds, milliseconds)
+
+
 if __name__ == "__main__":
     server = GstServer()
 
@@ -90,15 +100,23 @@ if __name__ == "__main__":
     try:
         while True:
             # ret, frame = cap.read()
-            frame = np.random.randint(0, 256, (480, 640, 3), dtype=np.uint8) # BGRx
+            # frame = np.random.randint(0, 256, (480, 640, 4), dtype=np.uint8) # BGRx
+            frame = np.zeros((1080, 1920, 4), dtype=np.uint8)
             ret = True
 
             if not ret:
                 break
             
+
+            elapsed_time = time.time() - start_time
+            cv2.putText(frame, format_time(elapsed_time), (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+
             # Pass frame to RTSP stream
+            cv2.imshow("RTSP Stream", frame)
             server.factory.set_frame(frame)
             
+            # time.sleep (0.001)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break   
     except KeyboardInterrupt:

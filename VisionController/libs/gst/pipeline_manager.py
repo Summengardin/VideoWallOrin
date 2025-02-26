@@ -40,7 +40,7 @@ MOVING_Y = 0
 @dataclass
 class Config:
     tiler_rows: int = 2
-    tiler_cols: int = 2
+    tiler_columns: int = 2
     width: int = 3840
     height: int = 2160
     batch_size: int = 4
@@ -48,7 +48,7 @@ class Config:
     max_num_sources: int = field(init=False)
 
     def __post_init__(self):
-        self.max_num_sources = self.tiler_rows * self.tiler_cols
+        self.max_num_sources = self.tiler_rows * self.tiler_columns
 
 class PipelineManager:
     def __init__(self, config: Optional[dict] = None):
@@ -144,7 +144,7 @@ class PipelineManager:
 
         tiler = self.elements['tiler']
         tiler.set_property("rows", self.config.tiler_rows)
-        tiler.set_property("columns", self.config.tiler_cols)
+        tiler.set_property("columns", self.config.tiler_columns)
         tiler.set_property("width", self.config.width)
         tiler.set_property("height", self.config.height)
         tiler.set_property("nvbuf-memory-type", 0)

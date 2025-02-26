@@ -95,7 +95,7 @@ class PipelineManager:
 
         bus = self.pipeline.get_bus()
         bus.add_signal_watch()
-        bus.connect("message", self._bus_message_handler, self.loop)               
+        bus.connect("message", self._bus_message_handler, self.loop)           
 
        
 
