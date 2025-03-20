@@ -1,0 +1,3 @@
+[submodule "VISCA-IP-Controller"]
+	path = VISCA-IP-Controller
+	url = git@github.com:misterhay/VISCA-IP-Controller.git
