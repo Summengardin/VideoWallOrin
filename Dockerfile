@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/deepstream:7.0-triton-multiarch
+FROM nvcr.io/nvidia/deepstream:7.1-triton-multiarch
 
 ARG DEBIAN_FRONTEND="noninteractive"
 
@@ -36,28 +36,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 
 RUN ls -l /opt/nvidia/deepstream/deepstream/lib/libnvbufsurface.so \
-    && echo "Library found, proceeding with CMake" \
-    || (echo "Library not found, aborting" && exit 1)
+    && echo "nvbufsurface-library found, proceeding with CMake" \
+    || (echo "nvbufsurface-library not found, aborting" && exit 1)
 
 # Install Deepstream-Python-Apps
-WORKDIR /opt/nvidia/deepstream/deepstream/sources/
+RUN /opt/nvidia/deepstream/deepstream/user_additional_install.sh
+# WORKDIR /opt/nvidia/deepstream/deepstream/sources/
 
-RUN git clone https://github.com/NVIDIA-AI-IOT/deepstream_python_apps \
-    && cd deepstream_python_apps \
-    && git submodule update --init \
-    && apt-get update && apt-get install -y apt-transport-https ca-certificates -y \
-    && update-ca-certificates \
-    && cd 3rdparty/gstreamer/subprojects/gst-python/ \
-    && meson setup build \
-    && cd build \
-    && ninja \
-    && ninja install \
-    && cd /opt/nvidia/deepstream/deepstream/sources/deepstream_python_apps/bindings \ 
-    && mkdir build 
-    # && cd build \
-    # && cmake .. -DPIP_PLATFORM=linux_aarch64 \
-    # && make -j$(nproc) \
-    # && pip3 install ./pyds-*.whl
+# RUN git clone https://github.com/NVIDIA-AI-IOT/deepstream_python_apps \
+#     && cd deepstream_python_apps \
+#     && git submodule update --init \
+#     && apt-get update && apt-get install -y apt-transport-https ca-certificates -y \
+#     && update-ca-certificates \
+#     && cd 3rdparty/gstreamer/subprojects/gst-python/ \
+#     && meson setup build \
+#     && cd build \
+#     && ninja \
+#     && ninja install \
+#     && cd /opt/nvidia/deepstream/deepstream/sources/deepstream_python_apps/bindings \ 
+#     && mkdir build 
+#     # && cd build \
+#     # && cmake .. -DPIP_PLATFORM=linux_aarch64 \
+#     # && make -j$(nproc) \
+#     # && pip3 install ./pyds-*.whl
 
 
 

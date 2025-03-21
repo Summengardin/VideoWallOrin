@@ -13,7 +13,13 @@ services:
       resources:
         reservations:
           devices:
-            - capabilities: [gpu]
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    devices:  # Correct placement for manual device mappings
+    - "/dev/nvidia0:/dev/nvidia0"
+    - "/dev/nvidiactl:/dev/nvidiactl"
+    - "/dev/nvidia-modeset:/dev/nvidia-modeset"
     environment:
       - DISPLAY=${DISPLAY}
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics
@@ -27,5 +33,5 @@ services:
     working_dir: /app
     tty: true
     stdin_open: true
-    privileged: true
+    privileged: false
     restart: always
