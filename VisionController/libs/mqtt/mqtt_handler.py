@@ -1,44 +1,84 @@
-
-
-import logging
-logger = logging.getLogger(__name__)
+import json
 import queue
-
-from ..gst.pipeline_manager import PipelineManager
-from ..mqtt.mqtt_client_ import MQTTClient
-from ..types import SourceType, Source, Camera
+from typing import Dict, Any
+from threading import Event
 
 class MQTTHandler:
-    def __init__(self, config = None, command_queue: queue.Queue = None, pipeline_manager: PipelineManager = None):
-        self.config = config
-        self.command_queue = command_queue
-        self.pipeline_manager = pipeline_manager
+    def __init__(self):
+        self.cameras: Dict[str, Dict[str, Any]] = {}
+        self.vision_controllers: Dict[str, Dict[str, Any]] = {}
         
-        self.mqtt_client = MQTTClient
+        self.is_running = False
+        self.message_queue = queue.Queue()
 
-        self.mqtt_client.set_on_message_callback(on_message)
-        mqtt_thread = threading.Thread(target=mqtt_client.start)
-        mqtt_thread.start() 
+
+    def run(self):
+        while not self.is_running:
+            try:
+                topic, payload = self.message_queue.get(timeout=1.0)
+                self._process_message(topic, payload)
+            except queue.Empty:
+                continue
+
+    def handle_message(self, topic: str, payload: str) -> None:
+        """Add message to queue for processing"""
+        self.message_queue.put((topic, payload))
+        
+
+    def _process_message(self, topic: str, payload: str) -> None:
+        """Process individual MQTT message"""
+        topic_parts = topic.split('/')
+        
+        if topic_parts[0] == 'Cameras':
+            camera_id = topic_parts[1]
+            parameter = topic_parts[2]
             
-        
-    def _build_topics(self, cameras, camera_subtopics, vision_controllers, vision_controller_subtopics):
-        topics = []
-        for camera in cameras:
-            for subtopic in camera_subtopics:
-                if type(subtopic) is dict:
-                    topic = subtopic.keys()[0]
-                    qos = subtopic.values()[0]
-                    topics.append((camera + topic, qos))
-                else:
-                    topics.append((camera + subtopic, 0))
+            if camera_id not in self.cameras:
+                self.cameras[camera_id] = {}
+                
+            self.cameras[camera_id][parameter] = self._parse_payload(payload)
 
-        for vision_controller in vision_controllers:
-            for subtopic in vision_controller_subtopics:
-                if isinstance(subtopic, dict):
-                    topic = list(subtopic.keys())[0]
-                    qos = subtopic[topic]
-                    topics.append((vision_controller + topic, qos))
-                else:
-                    topics.append((vision_controller + subtopic, 0))
+        elif topic_parts[0] == 'VisionControllers':
+            controller_id = topic_parts[1]
+            
+            if controller_id not in self.vision_controllers:
+                self.vision_controllers[controller_id] = {
+                    'tiles': {}
+                }
+            
+            if len(topic_parts) > 3 and topic_parts[2].startswith('Tile'):
+                tile_id = topic_parts[2]
+                parameter = topic_parts[3]
+                
+                if tile_id not in self.vision_controllers[controller_id]['tiles']:
+                    self.vision_controllers[controller_id]['tiles'][tile_id] = {}
+                    
+                self.vision_controllers[controller_id]['tiles'][tile_id][parameter] = self._parse_payload(payload)
+            else:
+                parameter = topic_parts[2]
+                self.vision_controllers[controller_id][parameter] = self._parse_payload(payload)
 
-        return topics
+    def _parse_payload(self, payload: str) -> Any:
+        """Parse payload string into appropriate type"""
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError:
+            try:
+                return float(payload)
+            except ValueError:
+                try:
+                    return int(payload)
+                except ValueError:
+                    return payload
+
+    def get_camera_property(self, camera_id: str, property_name: str) -> Any:
+        """Get specific camera property"""
+        return self.cameras.get(camera_id, {}).get(property_name)
+
+    def get_controller_property(self, controller_id: str, property_name: str) -> Any:
+        """Get specific controller property"""
+        return self.vision_controllers.get(controller_id, {}).get(property_name)
+
+    def get_tile_property(self, controller_id: str, tile_id: str, property_name: str) -> Any:
+        """Get specific tile property"""
+        return self.vision_controllers.get(controller_id, {}).get('tiles', {}).get(tile_id, {}).get(property_name)

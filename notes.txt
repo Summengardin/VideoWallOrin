@@ -14,16 +14,20 @@ gst-launch-1.0 uridecodebin uri=rtsp://admin:seaonics%21@10.1.3.61:554/Streaming
 
 # AXIS
 export AXIS_URI=rtsp://root:root@192.168.0.90/axis-media/media.amp?streamprofile=stream-1
+export AXIS_URI=rtsp://root:root@10.1.3.70/axis-media/media.amp?streamprofile=stream-1
+export AXIS_URI=rtsp://root:root@10.1.3.82/axis-media/media.amp?streamprofile=stream-1
 
 gst-launch-1.0 uridecodebin uri=rtsp://root:root@192.168.0.90/axis-media/media.amp?streamprofile=stram-1 ! nv3dsink sync=false
 
 gst-launch-1.0 uridecodebin uri=$AXIS_URI caps="video/x-raw(memory:NVMM), width=1920, height=1080, format=NV12" ! nv3dsink sync=false
 
+gst-launch-1.0 uridecodebin uri=$AXIS_URI caps="video/x-raw, width=1920, height=1080, format=RBGBA" ! xvimagesink sync=false
+
 gst-launch-1.0 uridecodebin uri=$AXIS_URI caps="video/x-raw(memory:NVMM), width=1920, height=1080, format=NV12" ! nv3dsink sync=false
 
 gst-launch-1.0 -v rtspsrc location=$AXIS_URI latency=0 ! application/x-rtp, payload=96 ! rtph265depay ! queue leaky=2 max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! nvv4l2decoder enable-max-performance=1 ! nv3dsink sync=false
 
-gst-launch-1.0 rtspsrc location=$AXIS_URI latency=0 ! application/x-rtp, payload=96 ! rtph265depay ! queue leaky=2 max-size-buffers=1 max-size-bytes=0 max-size-time=0  ! nvv4l2decoder enable-max-performance=1 ! nvvidconv ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! nv3dsink sync=false
+gst-launch-1.0 rtspsrc location=$AXIS_URI latency=0 ! application/x-rtp, payload=96 ! rtph264depay ! queue leaky=2 max-size-buffers=1 max-size-bytes=0 max-size-time=0  ! nvv4l2decoder enable-max-performance=1 ! nvvidconv ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! nv3dsink sync=false
 
 
 
@@ -41,3 +45,17 @@ gst-launch-1.0 rtspsrc location=$Z3_URI latency=0 ! application/x-rtp, payload=9
 	# RTSP Consume
 	gst-launch-1.0 -v rtspsrc location=rtsp://127.0.0.1:5000/test 
 	
+	
+
+# NVCompositor
+gst-launch-1.0 nvcompositor name=comp \
+sink_0::xpos=0 sink_0::ypos=0 sink_0::width=960 sink_0::height=540 \
+sink_1::xpos=960 sink_1::ypos=0 sink_1::width=960 sink_1::height=540 \
+sink_2::xpos=0 sink_2::ypos=540 sink_2::width=960 sink_2::height=540 \
+sink_3::xpos=960 sink_3::ypos=540 sink_3::width=960 sink_3::height=540 \
+! nv3dsink sync=false \
+videotestsrc ! nvvidconv ! comp. \
+videotestsrc ! nvvidconv ! nvivafilter cuda-process=true customer-lib-name="libnvsample_cudaprocess.so" ! comp. \
+uridecodebin uri=$Z3_URI  ! nvvidconv ! comp. \
+uridecodebin uri=$AXIS_URI ! nvvidconv ! comp. -e
+

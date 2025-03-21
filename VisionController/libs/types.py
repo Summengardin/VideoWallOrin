@@ -1,5 +1,9 @@
-from dataclasses import dataclass 
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from enum import Enum
+from typing import Dict, Optional
+import requests
+import logging
 
 import gi
 gi.require_version('Gst', '1.0')
@@ -32,6 +36,54 @@ class Source:
     enabled: bool = False
     limits: dict = None
 
+
+
+
+class ExposureMode(Enum):
+    AUTO = "auto"
+    MANUAL = "manual"
+    HOLD = "hold"
+
+@dataclass
+class CameraLimits:
+    min_zoom: float
+    max_zoom: float
+    min_exposure: float
+    max_exposure: float
+    min_gain: float
+    max_gain: float
+
+
+
+class CameraControllerError(Exception):
+    pass
+
+
+
+class CameraController(ABC):
+    @abstractmethod
+    def set_zoom(self, value: float) -> bool:
+        pass
+    
+    @abstractmethod
+    def set_exposure(self, mode: ExposureMode, value: Optional[float] = None) -> bool:
+        pass
+    
+    @abstractmethod
+    def set_gain(self, value: float) -> bool:
+        pass
+
+    @abstractmethod
+    def get_position(self) -> Dict[str, float]:
+        pass
+
+    @abstractmethod
+    def stop(self) -> bool:
+        pass
+
+    @abstractmethod
+    def reset(self) -> bool:
+        pass
 
 
 # @dataclass

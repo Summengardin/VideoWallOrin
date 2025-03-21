@@ -4,55 +4,66 @@ general:
 mqtt:
   # broker: '192.168.181.204'
   # broker: '192.168.180.13'
-  broker: '10.1.3.180'
+  # broker: '10.1.3.180'
+  # broker: '10.1.3.50'
+  broker: 10.1.3.180
   port: 1883
 
+
+  # ---- MQTT topics ---- #
   # Following are topics. Some topics have an optional qos parameter. Default is 0.
 
-  # Cameras are defined in the form 'Cameras/Camera0/'
-  cameras:  
-    - 'Camera1'
-    - 'Camera2'
-    - 'Camera3'
-    - 'Camera4'
-    - 'Camera5'
-    - 'Camera6'
-  camera_subtopics: 
-    - 'IP'
-    - 'Type'
-    - 'Width'
-    - 'Height'
-    - 'Format'
-    - 'Framerate'
-    - 'Zoom'
-    - 'Exposure'
-    - 'ExposureAuto'
-    - 'Gain'  
-    - 'GainAuto'
-    - 'Name'
+  # Camera configuration
+  cameras:
+    names:
+      - 'Camera1'
+      - 'Camera2'
+      - 'Camera3'
+      - 'Camera4'
+      - 'Camera5'
+      - 'Camera6'
+      - 'Camera7'
+      - 'Camera8'
+      - 'Camera9'
+    subtopics:
+      - 'IP'
+      - 'Type'
+      - 'Width'
+      - 'Height'
+      - 'Format'
+      - 'Framerate'
+      - 'Zoom'
+      - 'Exposure'
+      - 'ExposureAuto'
+      - 'Gain'
+      - 'GainAuto'
+      - 'Name'
 
-  # VisionControllers are defined in the form 'VisionControllers/VisionController0/'
-  vision_controllers: 
-    - 'VisionController0'
-  vision_controller_subtopics:
-    - 'IP'
-    - 'Width'
-    - 'Height'
-    - 'TilerRows'
-    - 'TilerColumns'
-    - 'Fullscreen'
-    - 'Shutdown': 1
-    - 'StartPipeline': 1
-
-  # There are four tiles in the form 'VisionControllers/VisionController0/TileXX/'
-
-  tile_subtopics:
-    - 'Source'
-    - 'Enable'
-    - 'Exposure'
-    - 'ExposureAuto'
-    - 'Gain'
-    - 'Zoom'
+  vision_controllers:
+    names:
+      - 'VisionController0'
+    subtopics:
+      - 'IP'
+      - 'Width'
+      - 'Height'
+      - 'TilerRows'
+      - 'TilerColumns'
+      - 'Fullscreen'
+      - 'Shutdown': 1
+      - 'StartPipeline': 1
+    tiles:
+      names:
+        - 'Tile01'
+        - 'Tile02'
+        - 'Tile03'
+        - 'Tile04'
+      subtopics:
+        - 'Source'
+        - 'Enable'
+        - 'Exposure'
+        - 'ExposureAuto'
+        - 'Gain'
+        - 'Zoom'
 
 pipeline:
   tiler_rows: 2

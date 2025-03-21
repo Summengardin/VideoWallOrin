@@ -109,7 +109,7 @@ class GUI(Gtk.Application):
         self.state_label.set_label(f"State: {state}")
 
     def set_callback(self, property: str, callback: callable):
-        if property == "zoom":
+        if property == "zoom":x
             self.cb_zoom_changed = callback
         elif property == "add_source":
             self.cb_add_source_clicked = callback
