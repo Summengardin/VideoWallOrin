@@ -1,6 +1,6 @@
 
 # TO RUN: docker compose up
-# FOR DEBUG (with shell): docker compose run --rm videowall sh
+# FOR DEBUG (with shell): docker compose run --rm videowall /bin/bash
 
 
 services:
@@ -8,7 +8,7 @@ services:
     # image: videowallorin
     image: vwvisioncontroller
     runtime: nvidia
-    command: sh
+    command: /bin/bash
     deploy:
       resources:
         reservations:
@@ -16,19 +16,16 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    devices:  # Correct placement for manual device mappings
-    - "/dev/nvidia0:/dev/nvidia0"
-    - "/dev/nvidiactl:/dev/nvidiactl"
-    - "/dev/nvidia-modeset:/dev/nvidia-modeset"
     environment:
       - DISPLAY=${DISPLAY}
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics
-      - XDG_RUNTIME_DIR=/tmp/runtime-docker
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
       - QT_X11_NO_MITSHM=1
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /etc/X11:/etc/X11
       - ~/.Xauthority:/root/.Xauthority
+      - ./tmp:/app/tmp
     network_mode: host
     working_dir: /app
     tty: true
