@@ -5,8 +5,63 @@
 
 services:
   videowall:
-    # image: videowallorin
     image: vwvisioncontroller
+    runtime: nvidia
+    command: /bin/bash
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - DISPLAY=${DISPLAY}
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /etc/X11:/etc/X11
+      - ~/.Xauthority:/root/.Xauthority
+      - ./tmp:/app/tmp
+    network_mode: host
+    working_dir: /app
+    tty: true
+    stdin_open: true
+    privileged: false
+    restart: always
+
+  videowallinfer:
+    image: vwvisioncontrollerinfer:7.0
+    runtime: nvidia
+    command: /bin/bash
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - DISPLAY=${DISPLAY}
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /etc/X11:/etc/X11
+      - ~/.Xauthority:/root/.Xauthority
+      - ./tmp:/app/tmp
+    network_mode: host
+    working_dir: /app
+    tty: true
+    stdin_open: true
+    privileged: false
+    restart: always
+    
+  videowallinfer71:
+    image: vwvisioncontrollerinfer:7.1
     runtime: nvidia
     command: /bin/bash
     deploy:
