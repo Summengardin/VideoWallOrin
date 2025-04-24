@@ -1,5 +1,6 @@
 general:
   visca_port: 1000
+  enable_aravis: false
 
 mqtt:
   # broker: '192.168.181.204'
