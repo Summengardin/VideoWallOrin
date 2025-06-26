@@ -1,6 +1,10 @@
 import threading
 import time
 import queue
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import subprocess
+import re
+import multiprocessing as mp
 import sys
 import importlib.util
 
@@ -57,11 +61,20 @@ class App():
 
         self.pipeline_manager = PipelineManager(self.pipeline_config)
 
-        # self.visca = ViscaController("10.1.3.78", self.general_config.get('visca_port'))
+        # Store camera status using multiprocessing manager
+        self.manager = mp.Manager()
+        self.camera_status = self.manager.dict()
+        self.camera_uris = self.manager.dict()
 
         self.cameras = {}
         self.cameras['test'] = Camera(id = "Camera0", ip="test", type="Test", width=1920, height=1080, framerate=60)
         self.cameras['test'].provider = self.camera_providers.get(self.cameras['test'].type, None)
+
+
+
+        # Store desired source configurations
+        self.desired_sources = {}
+
 
         self._test_zoom_dir = 1
 
@@ -70,6 +83,18 @@ class App():
         self.pipeline_thread = None
         self.handler_thread = None
         self.mqtt_thread = None
+        self.monitor_thread = None
+        self.monitor_stop_event = None
+
+        # Store process references
+        self.monitor_stop_event = threading.Event()
+        self.camera_monitor_stop_event = mp.Event()  # multiprocessing Event
+
+        # Add disconnect tracking
+        self.disconnect_counters = self.manager.dict()  # Track disconnect counts
+        self.disconnect_timestamps = self.manager.dict()  # Track when disconnects occur
+        self.max_disconnects = 5  # Maximum number of disconnects allowed
+        self.disconnect_window = 20  # Time window in seconds (5 minutes)
 
 
 
@@ -89,10 +114,17 @@ class App():
         self.mqtt_thread = threading.Thread(target=self.mqtt_client.start)
         self.mqtt_thread.start()
 
+        self.monitor_thread = threading.Thread(target=self._monitor_sources)
+        self.camera_monitor_process = mp.Process(target=self._monitor_cameras_process)
+        self.monitor_thread.start()
+        self.camera_monitor_process.start()
 
     def stop(self):
         
         logger.info("Stopping app")
+        logger.debug("|--> Stopping monitor threads and process")
+        self.camera_monitor_stop_event.set()
+        self.monitor_stop_event.set()
 
         logger.debug("|--> Stopping command queue")
         self.command_queue.put(None)
@@ -104,6 +136,11 @@ class App():
         logger.debug("|--> Stopping mqtt client")
         self.mqtt_client.stop()
 
+        logger.debug("|--> Joining monitor threads and process")
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            self.monitor_thread.join()
+        if self.camera_monitor_process and self.camera_monitor_process.is_alive():
+            self.camera_monitor_process.join()
         logger.debug("|--> Joining handler thread")
         self.handler_thread.join()
         
@@ -190,6 +227,8 @@ class App():
         source_label = payload.get('Source', None)
 
         if source_label is not None and source_label != "":
+            self.desired_sources[source_id] = source_label
+
             source = self.pipeline_manager.sources[source_id]
             source.cam_id = source_label
             source.name = payload.get('DisplayName', source.name) if 'DisplayName' in payload else source.name
@@ -468,6 +507,170 @@ class App():
         payload = message.payload.decode('utf-8')
         self.command_queue.put((message.topic, payload))
         logger.debug(f"Queued:    {message.topic}: {payload}")
+
+    def _check_rtsp_feed(self, uri, timeout_seconds=0.3):
+        """Check if an RTSP feed is available using ffprobe."""
+        timeout_microseconds = int(timeout_seconds * 1000000)
+        cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-stimeout', f'{timeout_seconds}', '-i', uri,
+              '-show_entries', 'stream=codec_type',
+              '-of', 'default=noprint_wrappers=1:nokey=1']
+        
+        try:
+            subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True, 
+                timeout=timeout_seconds + 0.5, 
+                check=True,                  
+            )
+            return True
+        
+        except subprocess.CalledProcessError as e:
+            # stream was probed but unavailable
+            logger.debug(f"RTSP feed check failed for {uri}: {e.stderr.strip()}")
+            return False
+        except subprocess.TimeoutExpired:
+            logger.debug(f"RTSP feed check timed out for {uri} after {timeout_seconds}s")
+            return False
+        except Exception as e:
+            logger.debug(f"Error checking RTSP feed {uri}: {e}")
+            return False
+
+    
+    def _monitor_cameras_process(self):
+        """Runs in its own *process*; reuses a thread-pool instead of creating
+        new Thread objects every loop iteration."""
+
+        run_counter = 0
+        # size: one worker per real camera (skip 'test' placeholders)
+        n_workers = sum(1 for cid, uri in self.camera_uris.items()
+                        if cid != "test" and uri)
+
+        # ❶ the pool is born once, lives for the whole method
+        with ThreadPoolExecutor(max_workers=max(1, n_workers)) as executor:
+            while not self.camera_monitor_stop_event.is_set():
+                try:
+                    # ❷ schedule one task per live camera URI
+                    futures = {
+                        executor.submit(self._check_rtsp_feed, uri): cam_id
+                        for cam_id, uri in self.camera_uris.items()
+                        if cam_id != "test" and uri
+                    }
+
+                    # ❸ collect results; update dict from *this* thread only
+                    for fut in as_completed(futures):
+                        cam_id = futures[fut]
+                        try:
+                            new_status = bool(fut.result())
+                            old_status = self.camera_status.get(cam_id, False)
+                            
+                            # If camera was connected and now disconnected
+                            if old_status and not new_status:
+                                current_time = time.time()
+                                last_disconnect = self.disconnect_timestamps.get(cam_id, 0)
+                                
+                                # Reset counter if outside time window
+                                if current_time - last_disconnect > self.disconnect_window:
+                                    self.disconnect_counters[cam_id] = 1
+                                else:
+                                    self.disconnect_counters[cam_id] = self.disconnect_counters.get(cam_id, 0) + 1
+                                
+                                self.disconnect_timestamps[cam_id] = current_time
+                                
+                                # Check if camera should be discarded
+                                if self.disconnect_counters.get(cam_id, 0) >= self.max_disconnects:
+                                    logger.warning(f"Camera {cam_id} disconnected too frequently, removing from active cameras")
+                                    self.camera_uris[cam_id] = None  # Remove URI to prevent reconnection attempts
+                                    self.camera_status[cam_id] = False
+                                    continue
+                            
+                            self.camera_status[cam_id] = new_status
+                            
+                        except Exception as exc:
+                            logger.warning("Camera %s raised %s", cam_id, exc)
+                            self.camera_status[cam_id] = False
+
+                    # ❹ periodic debug print
+                    run_counter += 1
+                    if run_counter >= 10:
+                        logger.debug("Camera status: %s", self.camera_status)
+                        logger.debug("Disconnect counters: %s", dict(self.disconnect_counters))
+                        run_counter = 0
+
+                    # one-second pacing and graceful stop
+                    if self.camera_monitor_stop_event.wait(1):
+                        break
+
+                except Exception as e:
+                    logger.error("Error in camera monitor process: %s", e)
+                    # small back-off before retrying
+                    if self.camera_monitor_stop_event.wait(5):
+                        break
+
+        logger.info("Camera monitor process stopped gracefully")
+
+
+
+    def _monitor_sources(self):
+        """Monitor sources for disconnections and attempt to reconnect them."""
+        while not self.monitor_stop_event.is_set():
+            try:
+                for source_id, source in enumerate(self.pipeline_manager.sources):
+                    desired_cam_id = self.desired_sources.get(source_id, None)                    
+                    if desired_cam_id is None:
+                        continue
+
+                    current_cam_id = source.cam_id
+
+                    # Skip if current source is alive and is active (not a placeholder)
+                    if self.camera_status.get(desired_cam_id, False) and source.active:
+                        continue
+
+                    desired_camera = self.cameras.get(desired_cam_id)
+                    if desired_camera and desired_camera.uri:
+                        # Check if the camera is available using the camera status
+                        if self.camera_status.get(desired_cam_id, False):
+                            logger.info(f"Camera {desired_camera.ip} is available, attempting to connect")
+                            
+                            # Remove the current source
+                            self.pipeline_manager.remove_source(source_id)
+                            
+                            try:
+                                # Try to add the desired source
+                                success = self.pipeline_manager.add_source(source_id, camera=desired_camera)
+                                if success:
+                                    logger.info(f"Successfully connected source {source_id} to {desired_camera.ip}")
+                                else:
+                                    logger.error(f"Failed to connect source {source_id} to {desired_camera.ip}")
+                                    # Add placeholder if connection failed
+                                    self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+                            except Exception as e:
+                                logger.error(f"Error connecting source {source_id}: {e}")
+                                # Add placeholder if connection failed
+                                self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+                        else:
+                            # logger.debug(f"Camera {desired_camera.ip} is not available")
+                            # Only add placeholder if current source is not already a placeholder
+                            if source.type != "Placeholder" and source.type != "Test":
+                                self.pipeline_manager.remove_source(source_id)
+                                self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+                    else:
+                        logger.error(f"No camera configuration or URI found for {desired_cam_id}")
+                        # Add placeholder if no camera config found
+                        if source.type != "Placeholder" and source.type != "Test":
+                            self.pipeline_manager.remove_source(source_id)
+                            self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+
+                # Sleep for a short interval before next check
+                if self.monitor_stop_event.wait(0.2):  # Check every 0.5 seconds
+                    break
+
+            except Exception as e:
+                logger.error(f"Error in monitor thread: {e}")
+                if self.monitor_stop_event.wait(5):  # Sleep before retrying on error
+                    break
+
+        logger.info("Monitor thread stopped gracefully")
 
 
 
