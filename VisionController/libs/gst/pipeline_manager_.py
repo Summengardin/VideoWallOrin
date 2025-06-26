@@ -28,6 +28,7 @@ if Gst.is_initialized() == False:
 
 class PipelineManager:
     def __init__(self, config = None):
+        self.ready = False
         self.window_close_callback = None
 
         self.config = config
@@ -108,12 +109,15 @@ class PipelineManager:
         if state_ret == Gst.StateChangeReturn.FAILURE:
             logger.critical("Unable to set the pipeline to the playing state")
             logger.info("Have you set the DISPLAY variable?     export DISPLAY=:0")
+            self.window_close_callback()
             return
 
     
         GLib.timeout_add(1000, self._print_fps)
 
         logger.info("Starting main loop \n")
+
+        self.ready = True
 
         self.loop.run()
 

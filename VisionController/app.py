@@ -130,6 +130,13 @@ class App():
 
 
     def _mqtt_command_handler(self):
+        while not self.pipeline_manager.ready:
+            # Hacky solution accessing the internal members of the queue
+            with self.command_queue.mutex:
+                if None in self.command_queue.queue:
+                    return
+            time.sleep(0.1)
+
         while True:
             msg = self.command_queue.get()
             if msg is None:
