@@ -210,51 +210,48 @@ class App():
         except ValueError:
             return
         source_id = index - 1
-        # subcommand = topic_split[3]
-        subcommand = ""
+        try:
+            subcommand = topic_split[4]
+        except IndexError:
+            subcommand = ""
+        # subcommand = ""
 
         # Tile01 = {"Source":"","Brightness":2.98246E-1,"Zoom":0E0,"OSD":"{\"OSD1\":\"{\\\"text\\\":\\\"\\\",\\\"font_name\\\":\\\"Noto Serif Bold\\\",\\\"font_size\\\":\\\"18\\\",\\\"font_color\\\":\\\"1.0,1.0,1.0,1.0\\\",\\\"bg_color\\\":\\\"0.0,0.0,0.0,0.6\\\",\\\"pos_x\\\":\\\"0\\\",\\\"pos_y\\\":\\\"0\\\",\\\"timeout\\\":\\\"0\\\",\\\"visible\\\":false}\",\"OSD2\":\"{\\\"text\\\":\\\"\\\",\\\"font_name\\\":\\\"…
         # payload = payload.replace("\\\\", "")
-        payload = json.loads(payload)
-        new_source_check = self.pipeline_manager.sources[source_id].cam_id != payload.get('Source', None)
-        if new_source_check:
-            logger.debug(f"New source check: {new_source_check}")
-            logger.debug(f"Old source: {self.pipeline_manager.sources[source_id].cam_id}")
-            logger.debug(f"New source: {payload.get('Source', None)}")
 
-        source_label = payload.get('Source', None)
+        
 
-        if source_label is not None and source_label != "":
-            self.desired_sources[source_id] = source_label
+        # payload = json.loads(payload)
+        
 
-            source = self.pipeline_manager.sources[source_id]
-            source.cam_id = source_label
-            source.name = payload.get('DisplayName', source.name) if 'DisplayName' in payload else source.name
-            source.ip = payload.get('IP', source.ip) if 'IP' in payload else source.ip
-            source.type = payload.get('Type', source.type) if 'Type' in payload else source.type
+        
 
-            osd_data = payload.get('OSD', {})
+        
 
-            if isinstance(osd_data, str):
-                # It's a JSON string → decode it
-                osd_data = json.loads(osd_data)
+        if subcommand == 'Source':
+            source_label = payload
 
-            for osd_key, osd_value in osd_data.items():
-                if osd_key.startswith("OSD"):
-                    # osd = payload.get('OSD')
-                    osd = json.loads(osd_value)
-                    self.pipeline_manager.osd_managers[source_id].upsert_text_from_dict(osd, osd_key)
+            if source_label is None or source_label == "":
+                source_label = "Placeholder"
 
-            source.provider = self.camera_providers.get(source.type, None)
-            # source.width = int(payload.get('Width', source.width)) if 'Width' in payload else source.width
-            if new_source_check:
-                # logger.debug(f"Removing old source")
+            # New source?
+            if self.pipeline_manager.sources[source_id].cam_id != source_label:
+                logger.debug(f"Old source: {self.pipeline_manager.sources[source_id].cam_id}  -->   New source: {source_label}")
 
+                self.desired_sources[source_id] = source_label
 
-                if self.cameras.get(source.cam_id, None) is not None:
+                source = self.pipeline_manager.sources[source_id]
+                if source is None:
+                    source = Source(id=source_id, cam_id=source_label)
+
+                self.pipeline_manager.sources[source_id].cam_id = source_label
+                
+                # Assign Camera to source
+                if self.cameras.get(source_label, None) is not None:
                     self.camera_uris[source.cam_id] = self.cameras[source.cam_id].uri
                     source.camera = self.cameras[source.cam_id] 
-                try:
+                    
+                try: # Try add new source to pipeline
                     logger.debug(f"Adding new source")
                     if self.camera_status.get(source.cam_id, False):
                         self.pipeline_manager.add_source(source_id, camera=self.cameras[source.cam_id])
@@ -262,15 +259,19 @@ class App():
                         logger.debug(f"Camera {source.cam_id} is not available, adding placeholder source")
                         self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
                 except KeyError as e:
-                    logger.error(f"No camera with that ip ({source.ip}). Could not find camera: {e}")
-                    # logger.error(f"Availeble cameras: {self.cameras}")
+                    logger.error(f"No camera with that id ({source.cam_id}). Could not find camera: {e}")
+
                     logger.debug(f"Adding placeholder source")
                     self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
                 except Exception as e:
                     logger.error(f"Could not add source {source_id}. {type(e).__name__}: {e}")
                     logger.debug(f"Adding placeholder source")
                     self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
-                try:
+
+
+                try: # Try get control module for camera
+                    source.provider = self.camera_providers.get(source.type, None)
+
                     if source.provider is not None:
                         module_path = source.provider.get("controller_module_path")
                         module_name = module_path.split("/")[-1].split(".")[0:-1][0]
@@ -287,80 +288,205 @@ class App():
 
                         source.control = control_module.CameraControl(source.camera)
 
+                        print(f"\n\n\nSet source.control to {source.control}")
+                    else:
+                        logger.info(f"No control provider for camera of type: {source.type}")
                 except Exception as e:
                     logger.error(f"Could not import control module for type \"{source.type}\": {e}")
+                    
+                
+                self.pipeline_manager.sources[source_id] = source
+        
 
-            self.pipeline_manager.sources[source_id] = source
-        if subcommand == 'Source':
+        elif subcommand == 'OSD':
             try:
-                camera_index = find_digits_in_string(payload)
-            except ValueError:
-                camera_index = 0
-            # self.pipeline_manager.sources[source_id].camera = self.pipeline_manager.cameras[camera_index]
-            self.pipeline_manager.sources[source_id].cam_id = payload
-        elif subcommand == 'Enable':
-            self.pipeline_manager.sources[source_id].enabled = int(payload) > 0
-            if int(payload) > 0:
+                osd_data = json.loads(payload)
+                for osd_key, osd_value in osd_data.items():
+                    if isinstance(osd_value, str):
+                        osd_value = json.loads(osd_value)
+                    self.pipeline_manager.osd_managers[source_id].upsert_text_from_dict(osd_value, osd_key)
+
+            except Exception as e:
+                logger.error(f"Could not load OSD data: {e}")
+                return
+
+
+        elif subcommand == "ZoomSpeed":
+            try:
+                zoom_speed = float(payload)
+            except TypeError as e:
+                logger.error(f"Wrong type provided as zoom speed (float expected)\nProvided: {payload}.\nError: {e}")
+
+            try:
+                control = self.pipeline_manager.sources[source_id].control
+                control.continuous_zoom(zoom_speed)
+            except Exception as e:
+                logger.error(f"Could not initiate continuous zoom for Source {source_id}. \nError: {e}")
+
+
+        elif subcommand == "PanSpeed":
+            try:
+                pan_speed = float(payload)
+            except TypeError as e:
+                logger.error(f"Wrong type provided as pan speed (float expected)\nProvided: {payload}.\nError: {e}")
+
+            try:
+                control = self.pipeline_manager.sources[source_id].control
+                control.continuous_pan(pan_speed)
+            except Exception as e:
+                logger.error(f"Could not initiate continuous pan for Source {source_id}. \nError: {e}")
+    
+        elif subcommand == "TiltSpeed":
+            try:
+                tilt_speed = float(payload)
+            except TypeError as e:
+                logger.error(f"Wrong type provided as tilt speed (float expected)\nProvided: {payload}.\nError: {e}")
+
+            try:
+                control = self.pipeline_manager.sources[source_id].control
+                control.continuous_tilt(tilt_speed)
+            except Exception as e:
+                logger.error(f"Could not initiate continuous tilt for Source {source_id}. \nError: {e}")
+
+
+        elif subcommand == "Brightness":
+            try:
+                brightness = float(payload)
+            except TypeError as e:
+                logger.error(f"Wrong type provided as brightness (float expected)\nProvided: {payload}.\nError: {e}")
+
+            try:
+                control = self.pipeline_manager.sources[source_id].control
+                control.set_brightness(brightness)
+            except Exception as e:
+                logger.error(f"Could not set brightness for Source {source_id}. \nError: {e}")
+
+
+
+        else:
+            logger.warning(f"Tile-subcommand \"{subcommand}\" not assigned any logic yet")
+
             
-                try:
-                    cam_id = self.pipeline_manager.sources[source_id].cam_id
+            
+
+            # ptz_data = payload.get('PTZ', {})
+
+            # if isinstance(ptz_data, str):
+            #     ptz_data = json.loads(ptz_data)
+
+            # pan_speed = ptz_data.get('PanSpeed', 0)
+            # tilt_speed = ptz_data.get('TiltSpeed', 0)
+            # zoom_speed = ptz_data.get('ZoomSpeed', 0)
+
+
+            # if source.control is not None:
+            #     try:
+            #         logger.debug(f"Setting PTZ control: {pan_speed}, {tilt_speed}, {zoom_speed}")
+            #         print(f"Setting PTZ control: {pan_speed}, {tilt_speed}, {zoom_speed}")
+            #         source.control.ptz.continuous_pantilt(pan_speed=pan_speed*100, tilt_speed=tilt_speed*100)
+            #         source.control.continuous_zoom(zoom_speed=zoom_speed)
+
+
+            #     except Exception as e:
+            #         logger.error(f"Could not set PTZ control: {e}")
+            # else:
+            #     logger.debug(f"No PTZ control for {source.cam_id}")
+
+    
+            # osd_data = payload.get('OSD', {})
+
+            # if isinstance(osd_data, str):
+            #     # It's a JSON string → decode it
+            #     osd_data = json.loads(osd_data)
+            # print (f"\n\n\n {osd_key}: {osd_value} \n\n\n")
+            # for osd_key, osd_value in osd_data.items():
+            #     if osd_key.startswith("OSD"):
+            #         # osd = payload.get('OSD')
+            #         osd = json.loads(osd_value)
+            #         self.pipeline_manager.osd_managers[source_id].upsert_text_from_dict(osd, osd_key)
+
+            
+            # source.width = int(payload.get('Width', source.width)) if 'Width' in payload else source.width
+            # source.height = int(payload.get('Height', source.height)) if 'Height' in payload else source.height
+            # source.framerate = float(payload.get('Framerate', source.framerate)) if 'Framerate' in payload else source.framerate
+            # source.format = payload.get('Format', source.format) if 'Format' in payload else source.format
+
+        
+        
+        # print(self.pipeline_manager.sources)
+
+        # if subcommand == 'Source':
+        #     try:
+        #         camera_index = find_digits_in_string(payload)
+        #     except ValueError:
+        #         camera_index = 0
+        #     # self.pipeline_manager.sources[source_id].camera = self.pipeline_manager.cameras[camera_index]
+
+        #     self.pipeline_manager.sources[source_id].cam_id = payload
+        # elif subcommand == 'Enable':
+        #     self.pipeline_manager.sources[source_id].enabled = int(payload) > 0
+        #     if int(payload) > 0:
+            
+        #         try:
+        #             bin = self.source_manager.get_source_bin()
+        #             cam_id = self.pipeline_manager.sources[source_id].cam_id
                     
-                    success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,), kwargs={'camera': self.cameras[cam_id]})
-                    if not success:
-                        logger.error(f"Adding source {source_id} timed out")
-                        success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
-                        if not success:
-                            logger.error(f"Adding placeholder source {source_id} timed out")
+        #             success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,), kwargs={'camera': self.cameras[cam_id]})
+        #             if not success:
+        #                 logger.error(f"Adding source {source_id} timed out")
+        #                 success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
+        #                 if not success:
+        #                     logger.error(f"Adding placeholder source {source_id} timed out")
                     
 
-                    self.pipeline_manager.osd_manager[source_id].upsert_text(f"{self.pipeline_manager.sources[source_id].cam_id} - {self.pipeline_manager.sources[source_id].name}", "upper left", 0, 0, None, 18)
-                    self.pipeline_manager.osd_manager[source_id].upsert_text(f"{self.pipeline_manager.sources[source_id].ip}", "upper right", 1920, 0, 'r', 18)
+        #             self.pipeline_manager.osd_manager[source_id].upsert_text(f"{self.pipeline_manager.sources[source_id].cam_id} - {self.pipeline_manager.sources[source_id].name}", "upper left", 0, 0, None, 18)
+        #             self.pipeline_manager.osd_manager[source_id].upsert_text(f"{self.pipeline_manager.sources[source_id].ip}", "upper right", 1920, 0, 'r', 18)
 
 
 
 
-                except Exception as e:
-                    logger.error(f"Could not add source {source_id}. Error: {e}")
-                    success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
-                    if not success:
-                        logger.error(f"Adding placeholder source {source_id} timed out")
+        #         except Exception as e:
+        #             logger.error(f"Could not add source {source_id}. Error: {e}")
+        #             success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
+        #             if not success:
+        #                 logger.error(f"Adding placeholder source {source_id} timed out")
                     
-            else:
-                try:
-                    success = self._run_with_timeout(self.pipeline_manager.remove_source, args=(source_id,))
-                    if not success:
-                        logger.error(f"Removing source {source_id} timed out")
-                    success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
-                    if not success:
-                        logger.error(f"Adding placeholder source {source_id} timed out")
-                except Exception as e:
-                    logger.error(f"Could not stop releasing source {source_id}")
+        #     else:
+        #         try:
+        #             success = self._run_with_timeout(self.pipeline_manager.remove_source, args=(source_id,))
+        #             if not success:
+        #                 logger.error(f"Removing source {source_id} timed out")
+        #             success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
+        #             if not success:
+        #                 logger.error(f"Adding placeholder source {source_id} timed out")
+        #         except Exception as e:
+        #             logger.error(f"Could not stop releasing source {source_id}")
 
-        elif subcommand == 'Zoom':
-            value = float(payload)
+        # elif subcommand == 'Zoom':
+        #     value = float(payload)
 
-            self._run_with_timeout(self._update_source_feature, args=(source_id, 'zoom'), kwargs={'value': value})
-            self.pipeline_manager.osd_manager[source_id].upsert_text(f"Zoom: {value:.2f}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
-            self.pipeline_manager.osd_manager[source_id].upsert_triangle("viewport", 1920//2, 1080//2, 50+600*float(payload), 10, (1.0, 1.0, 1.0, 1.0), -90, 2)
+        #     self._run_with_timeout(self._update_source_feature, args=(source_id, 'zoom'), kwargs={'value': value})
+        #     self.pipeline_manager.osd_manager[source_id].upsert_text(f"Zoom: {value:.2f}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
+        #     self.pipeline_manager.osd_manager[source_id].upsert_triangle("viewport", 1920//2, 1080//2, 50+600*float(payload), 10, (1.0, 1.0, 1.0, 1.0), -90, 2)
 
 
-        elif subcommand == 'Exposure':
-            value = float(payload)
+        # elif subcommand == 'Exposure':
+        #     value = float(payload)
 
-            self._run_with_timeout(self._update_source_feature, args=(source_id, 'exposure_time'), kwargs={'value': value})
-            self.pipeline_manager.osd_manager[source_id].upsert_text(f"Exposure Time: {value:.2f}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
+        #     self._run_with_timeout(self._update_source_feature, args=(source_id, 'exposure_time'), kwargs={'value': value})
+        #     self.pipeline_manager.osd_manager[source_id].upsert_text(f"Exposure Time: {value:.2f}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
 
-        elif subcommand == 'ExposureAuto':
-            value = int(payload)
+        # elif subcommand == 'ExposureAuto':
+        #     value = int(payload)
 
-            self._run_with_timeout(self._update_source_feature, args=(source_id, 'exposure_time_auto'), kwargs={'value': value})
-            self.pipeline_manager.osd_manager[source_id].upsert_text(f"Exposure Auto: {value}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
+        #     self._run_with_timeout(self._update_source_feature, args=(source_id, 'exposure_time_auto'), kwargs={'value': value})
+        #     self.pipeline_manager.osd_manager[source_id].upsert_text(f"Exposure Auto: {value}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
 
-        elif subcommand == 'Gain':
-            value = float(payload)
+        # elif subcommand == 'Gain':
+        #     value = float(payload)
 
-            self._run_with_timeout(self._update_source_feature, args=(source_id, 'gain'), kwargs={'value': value})
-            self.pipeline_manager.osd_manager[source_id].upsert_text(f"Gain: {value:.2f}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
+        #     self._run_with_timeout(self._update_source_feature, args=(source_id, 'gain'), kwargs={'value': value})
+        #     self.pipeline_manager.osd_manager[source_id].upsert_text(f"Gain: {value:.2f}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
 
 
     def _update_source_feature(self, source_id: int, feature, value):
