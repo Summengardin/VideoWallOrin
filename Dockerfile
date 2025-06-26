@@ -8,21 +8,31 @@
 #    - 7.0: Uses CUDA 12.2 and Python Apps 1.1.11
 #    - 7.1: Uses CUDA 12.6 and Python Apps 1.2.0
 #
-# 2. BUILD_YOLO (default: true)
-#    - true: Installs and builds YOLO inference components
-#    - false: Skips YOLO installation
+# 2. CUDA_VERSION (default: 12.2)
+#    - 12.2: Used with Deepstream 7.0
+#    - 12.6: Used with Deepstream 7.1
 #
-# 3. BUILD_ARAVIS (default: false)
+# 3. PYTHON_APPS_VERSION (default: 1.1.11)
+#    - 1.1.11: Used with Deepstream 7.0
+#    - 1.2.0: Used with Deepstream 7.1
+#
+# 4. ARCH (default: x86_64)
+#    - x86_64: For x86_64 architecture
+#    - aarch64: For ARM64 architecture
+#
+# 5. BUILD_ARAVIS (default: false)
 #    - true: Installs Aravis camera support
 #    - false: Skips Aravis installation
 #
-# 4. BUILD_TISCAMERA (default: false)
+# 6. BUILD_TISCAMERA (default: false)
 #    - true: Installs TISCAMERA support
 #    - false: Skips TISCAMERA installation
 #
-# 5. ARCH (default: x86_64)
-#    - x86_64: For x86_64 architecture
-#    - aarch64: For ARM64 architecture
+# 7. BUILD_YOLO (default: true)
+#    - true: Installs and builds YOLO inference components
+#    - false: Skips YOLO installation
+#
+#
 #
 # Example Build Commands:
 # ----------------------
@@ -52,30 +62,46 @@
 #      --build-arg BUILD_TISCAMERA=true \
 #      -t vwvisioncontrollerinfer:7.1-cameras .
 
-# Build arguments for configuration
+# Default arguments
 ARG DEEPSTREAM_VERSION=7.0
+ARG CUDA_VERSION=12.2
+ARG PYTHON_APPS_VERSION=1.1.11
+ARG ARCH=x86_64
 ARG BUILD_ARAVIS=false
 ARG BUILD_TISCAMERA=false
 ARG BUILD_YOLO=true
-ARG ARCH=x86_64
-
-# Set dependent versions based on Deepstream version
-ARG CUDA_VERSION
-ARG PYTHON_APPS_VERSION
 
 # Base image
 FROM nvcr.io/nvidia/deepstream:${DEEPSTREAM_VERSION}-triton-multiarch
 
-# Set dependent versions based on Deepstream version
-RUN if [ "${DEEPSTREAM_VERSION}" = "7.0" ] ; then \
-    export CUDA_VERSION=12.2 && \
-    export PYTHON_APPS_VERSION=1.1.11 ; \
-    elif [ "${DEEPSTREAM_VERSION}" = "7.1" ] ; then \
-    export CUDA_VERSION=12.6 && \
-    export PYTHON_APPS_VERSION=1.2.0 ; \
+# Need to re-declare arguments after "FROM"
+ARG DEEPSTREAM_VERSION
+ARG CUDA_VERSION
+ARG PYTHON_APPS_VERSION
+ARG ARCH
+ARG BUILD_ARAVIS
+ARG BUILD_TISCAMERA
+ARG BUILD_YOLO
+
+# Check if CUDA_VERSION and PYTHON_APPS_VERSION match the expected values for the selected Deepstream version
+RUN if [ "${DEEPSTREAM_VERSION}" = "7.0" ]; then \
+      if [ "${CUDA_VERSION}" != "12.2" ] || [ "${PYTHON_APPS_VERSION}" != "1.1.11" ]; then \
+        echo "Not correct config" && \
+        echo "For Deepstream 7.0, expected CUDA_VERSION=12.2 and PYTHON_APPS_VERSION=1.1.11" && \
+        echo "But got CUDA_VERSION=${CUDA_VERSION}, PYTHON_APPS_VERSION=${PYTHON_APPS_VERSION}" && \
+        exit 1; \
+      fi ; \
+    elif [ "${DEEPSTREAM_VERSION}" = "7.1" ]; then \
+      if [ "${CUDA_VERSION}" != "12.6" ] || [ "${PYTHON_APPS_VERSION}" != "1.2.0" ]; then \
+        echo "Not correct config" && \
+        echo "For Deepstream 7.1, expected CUDA_VERSION=12.6 and PYTHON_APPS_VERSION=1.2.0" && \
+        echo "But got CUDA_VERSION=${CUDA_VERSION}, PYTHON_APPS_VERSION=${PYTHON_APPS_VERSION}" && \
+        exit 1; \
+      fi ; \
     else \
-    echo "Unsupported Deepstream version: ${DEEPSTREAM_VERSION}" && exit 1 ; \
+      echo "Unsupported Deepstream version: ${DEEPSTREAM_VERSION}" && exit 1 ; \
     fi
+
 
 ARG DEBIAN_FRONTEND="noninteractive"
 
@@ -142,6 +168,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Deepstream Additional Installs
 RUN /opt/nvidia/deepstream/deepstream/user_additional_install.sh
 RUN /opt/nvidia/deepstream/deepstream/user_deepstream_python_apps_install.sh -v ${PYTHON_APPS_VERSION}
+# RUN /opt/nvidia/deepstream/deepstream/user_deepstream_python_apps_install.sh -v
+
 
 # Install YOLO - Setup directories and clone repositories
 RUN if [ "$BUILD_YOLO" = "true" ] ; then \
@@ -221,6 +249,10 @@ RUN pip3 install --no-cache-dir -r /app/requirements.txt
 # Copy application files
 COPY /VisionController/config/infer/ /app/DeepStream-Yolo/
 COPY /VisionController /app/VisionController
+
+# Install Vapix Python
+COPY /vapix-python /app/vapix-python
+RUN pip3 install --no-cache-dir -e /app/vapix-python
 
 # Set default environment variables
 ENV Z3_URI1=rtsp://10.1.3.71/stream-1.sdp 
