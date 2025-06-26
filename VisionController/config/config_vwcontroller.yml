@@ -2,6 +2,30 @@ general:
   visca_port: 1000
   enable_aravis: false
 
+
+camera_providers:
+  Axis:
+    source_bin_path: "/app/VisionController/libs/cameras/nvuri_source_bin.py"
+    controller_module_path: "/app/VisionController/libs/cameras/vapix_control.py"
+  Test:
+    # source_bin_path: "/app/VisionController/libs/cameras/placeholder_source_bin.py"
+    source_bin_path: "/app/VisionController/libs/cameras/nvuri_source_bin.py"
+    controller_module_path: "/app/VisionController/libs/cameras/vapix_control.py"
+  Z3:
+    # source_bin_path: "/app/VisionController/libs/cameras/nvuri_source_bin.py"
+    source_bin_path: "/app/VisionController/libs/cameras/nvuri_source_bin.py"
+    controller_module_path: "/app/VisionController/libs/cameras/vapix_control.py"
+  # Axis:
+  #   source_bin_path: "VisionController.libs.cameras.uri_source_bin"
+  #   controller_module_path: "VisionController.libs.cameras.vapix_control"
+  # Test:
+  #   # source_bin_path: "VisionController.libs.cameras.placeholder_source_bin"
+  #   source_bin_path: "VisionController.libs.cameras.nvuri_source_bin"
+  #   controller_module_path: "VisionController.libs.cameras.vapix_control"
+  # Z3:
+  #   source_bin_path: "VisionController.libs.cameras.nvuri_source_bin"
+  #   controller_module_path: "VisionController.libs.cameras.vapix_control"
+
 mqtt:
   # broker: '192.168.181.204'
   # broker: '192.168.180.13'
