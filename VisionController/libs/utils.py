@@ -76,7 +76,7 @@ def scale(value, from_min = 0, from_max = 1, to_min = 0, to_max = 100):
     return (value - from_min) * (to_max - to_min) / (from_max - from_min) + to_min
 
 
-def clamp(value, lower, upper):
+def clamp(value, lower=0.0, upper=1.0):
     """
     Clamp a value between a minimum and maximum value.
 
@@ -135,7 +135,8 @@ def calculate_text_offset(text: str, font_size: int, alignment: str) -> int:
     """
     # Estimate the width of the text based on its length and the font size
     estimated_text_width = len(text) * (font_size // 1.1)
-
+    
+    alignment = alignment.lower()
     if alignment == 'center' or alignment == 'c':
         # Calculate the offset to center the text
         offset = -estimated_text_width // 2
