@@ -7,7 +7,7 @@ from gi.repository import Gst
 import logging
 logger = logging.getLogger(__name__)
 
-from ..types import Source
+from ..vw_types import Source
 from ..camera import Camera
 from ..utils import float_to_fraction
 

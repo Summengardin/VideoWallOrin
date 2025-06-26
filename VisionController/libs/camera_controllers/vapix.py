@@ -6,7 +6,7 @@ import logging
 import time
 
 
-from ..types import CameraController, CameraControllerError
+from ..vw_types import CameraController, CameraControllerError
 
 logger = logging.getLogger(__name__)
 

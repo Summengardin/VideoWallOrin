@@ -30,7 +30,7 @@ from VisionController.libs.gst.source_bins import (
     create_videotestsrc_source_bin,
 )
 from VisionController.libs.utils import index_dataclass, scale, clamp, calculate_text_offset
-from VisionController.libs.types import Source, SourceType
+from VisionController.libs.vw_types import Source, SourceType
 from VisionController.libs.gst.osd_manager import OSDManager
 
 # Constants

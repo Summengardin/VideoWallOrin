@@ -1,7 +1,7 @@
 
 from VisionController.libs.camera import Camera
 from VisionController.libs.utils import index_dataclass
-from VisionController.libs.types import Source, SourceType
+from VisionController.libs.vw_types import Source, SourceType
 from typing import Tuple
 
 class SourceManager:
