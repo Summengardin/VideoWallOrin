@@ -17,15 +17,15 @@ mqtt:
   # Camera configuration
   cameras:
     names:
-      - 'Camera1'
-      - 'Camera2'
-      - 'Camera3'
-      - 'Camera4'
-      - 'Camera5'
-      - 'Camera6'
-      - 'Camera7'
-      - 'Camera8'
-      - 'Camera9'
+      - 'Camera01'
+      - 'Camera02'
+      - 'Camera03'
+      - 'Camera04'
+      - 'Camera05'
+      - 'Camera06'
+      - 'Camera07'
+      - 'Camera08'
+      - 'Camera09'
     subtopics:
       - 'IP'
       - 'Type'
@@ -58,6 +58,7 @@ mqtt:
         - 'Tile02'
         - 'Tile03'
         - 'Tile04'
+        - 'Fullscreen'
       subtopics:
         - 'Source'
         - 'Enable'

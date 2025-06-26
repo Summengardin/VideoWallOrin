@@ -59,18 +59,23 @@ def load_mqtt_topics(config: dict) -> List[str]:
         else:
             topics.append((f"{base_topic}/{subtopic}", 0))
 
-
+    base_topic = "VWController"
     # Generate camera topics
+    # camera_config = config['cameras']
+    # for camera_name in camera_config['names']:
+    #     base_topic = f"Cameras/{camera_name}"
+    #     for subtopic in camera_config['subtopics']:
+    #         append_subtopic_with_qos(subtopic, base_topic)
     camera_config = config['cameras']
     for camera_name in camera_config['names']:
-        base_topic = f"Cameras/{camera_name}"
-        for subtopic in camera_config['subtopics']:
-            append_subtopic_with_qos(subtopic, base_topic)
+        topic = f"{base_topic}/Cameras/{camera_name}"
+        topics.append((topic, 0))
+    
 
     # Generate vision controller topics
     vc_config = config['vision_controllers']
     for vc_name in vc_config['names']:
-        base_topic = f"VisionControllers/{vc_name}"
+        base_vc_topic = f"{base_topic}/VisionControllers/{vc_name}"
         
         # Add main controller topics
         for subtopic in vc_config['subtopics']:
@@ -79,9 +84,8 @@ def load_mqtt_topics(config: dict) -> List[str]:
         # Add tile topics
         tile_config = vc_config['tiles']
         for tile_name in tile_config['names']:
-            tile_base = f"{base_topic}/{tile_name}"
-            for subtopic in tile_config['subtopics']:
-                append_subtopic_with_qos(subtopic, tile_base)
+            topic = f"{base_vc_topic}/{tile_name}"
+            topics.append((topic, 0))
 
     return topics
 
