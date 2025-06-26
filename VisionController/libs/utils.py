@@ -142,8 +142,14 @@ def calculate_text_offset(text: str, font_size: int, alignment: str) -> int:
     elif alignment == 'right' or alignment == 'r':
         # Calculate the offset to align the text to the right
         offset = -estimated_text_width
+    elif alignment == 'left' or alignment == 'l':
+        # No offset needed for left alignment
+        offset = 0
+    elif alignment == None:
+        # No offset needed for left alignment
+        offset = 0
     else:
-        raise ValueError("Alignment must be either 'center' or 'right'.")
+        raise ValueError(f"on '{alignment}'. Alignment must be either 'left', 'center' or 'right'.")
 
     return int(offset)
 
