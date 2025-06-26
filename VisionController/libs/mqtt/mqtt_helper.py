@@ -86,6 +86,8 @@ def load_mqtt_topics(config: dict) -> List[str]:
         for tile_name in tile_config['names']:
             topic = f"{base_vc_topic}/{tile_name}"
             topics.append((topic, 0))
+            for subtopic in tile_config['subtopics']:
+                append_subtopic_with_qos(subtopic, topic)
 
     return topics
 
