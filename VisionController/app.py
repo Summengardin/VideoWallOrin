@@ -146,14 +146,15 @@ class App():
 
             topic_split = topic.split('/')
 
-            if topic_split[0] == 'VisionControllers':
-                self._handle_vision_controllers_message(topic_split, payload)
-            elif topic_split[0] == 'Cameras':
+            if topic_split[1] == 'VisionControllers':
+                if topic_split[2] == 'VisionController0':
+                    self._handle_vision_controllers_message(topic_split, payload)
+            elif topic_split[1] == 'Cameras':
                 self._handle_cameras_message(topic_split, payload)
             
 
     def _handle_vision_controllers_message(self, topic_split, payload):
-        command = topic_split[2]
+        command = topic_split[3]
         if command == 'Fullscreen':
             self.pipeline_manager._set_fullscreen(int(payload))
         elif command in {'Width', 'Height', 'TilerRows', 'TilerColumns'}:
@@ -171,9 +172,63 @@ class App():
         except ValueError:
             return
         source_id = index - 1
-        subcommand = topic_split[3]
+        # subcommand = topic_split[3]
+        subcommand = ""
+
+        # Tile01 = {"Source":"","Brightness":2.98246E-1,"Zoom":0E0,"OSD":"{\"OSD1\":\"{\\\"text\\\":\\\"\\\",\\\"font_name\\\":\\\"Noto Serif Bold\\\",\\\"font_size\\\":\\\"18\\\",\\\"font_color\\\":\\\"1.0,1.0,1.0,1.0\\\",\\\"bg_color\\\":\\\"0.0,0.0,0.0,0.6\\\",\\\"pos_x\\\":\\\"0\\\",\\\"pos_y\\\":\\\"0\\\",\\\"timeout\\\":\\\"0\\\",\\\"visible\\\":false}\",\"OSD2\":\"{\\\"text\\\":\\\"\\\",\\\"font_name\\\":\\\"…
+        # payload = payload.replace("\\\\", "")
+        payload = json.loads(payload)
+        new_source_check = self.pipeline_manager.sources[source_id].cam_id != payload.get('Source', None)
+        if new_source_check:
+            logger.debug(f"New source check: {new_source_check}")
+            logger.debug(f"Old source: {self.pipeline_manager.sources[source_id].cam_id}")
+            logger.debug(f"New source: {payload.get('Source', None)}")
+
+        source_label = payload.get('Source', None)
+
+        if source_label is not None and source_label != "":
+            source = self.pipeline_manager.sources[source_id]
+            source.cam_id = source_label
+            source.name = payload.get('DisplayName', source.name) if 'DisplayName' in payload else source.name
+            source.ip = payload.get('IP', source.ip) if 'IP' in payload else source.ip
+            source.type = payload.get('Type', source.type) if 'Type' in payload else source.type
+
+            osd_data = payload.get('OSD', {})
+
+            if isinstance(osd_data, str):
+                # It's a JSON string → decode it
+                osd_data = json.loads(osd_data)
+
+            for osd_key, osd_value in osd_data.items():
+                if osd_key.startswith("OSD"):
+                    # osd = payload.get('OSD')
+                    osd = json.loads(osd_value)
+                    self.pipeline_manager.osd_managers[source_id].upsert_text_from_dict(osd, osd_key)
+
+            if new_source_check:
+                # logger.debug(f"Removing old source")
 
 
+                if self.cameras.get(source.cam_id, None) is not None:
+                    self.camera_uris[source.cam_id] = self.cameras[source.cam_id].uri
+                    source.camera = self.cameras[source.cam_id] 
+                try:
+                    logger.debug(f"Adding new source")
+                    if self.camera_status.get(source.cam_id, False):
+                        self.pipeline_manager.add_source(source_id, camera=self.cameras[source.cam_id])
+                    else:
+                        logger.debug(f"Camera {source.cam_id} is not available, adding placeholder source")
+                        self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+                except KeyError as e:
+                    logger.error(f"No camera with that ip ({source.ip}). Could not find camera: {e}")
+                    # logger.error(f"Availeble cameras: {self.cameras}")
+                    logger.debug(f"Adding placeholder source")
+                    self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+                except Exception as e:
+                    logger.error(f"Could not add source {source_id}. {type(e).__name__}: {e}")
+                    logger.debug(f"Adding placeholder source")
+                    self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+            self.pipeline_manager.sources[source_id] = source
         if subcommand == 'Source':
             try:
                 camera_index = find_digits_in_string(payload)
@@ -321,39 +376,37 @@ class App():
 
 
     def _handle_cameras_message(self, topic_split, payload):
-        index = find_digits_in_string(topic_split[1])
-        cam_id = topic_split[1]
-        command = topic_split[2]
+        cam_id = topic_split[2]
+        index = find_digits_in_string(cam_id)
+        # command = topic_split[2]
+
+        # VWController/Cameras/Camera00 = {"IP":"10.1.3.71","DisplayName":"Tip","Width":1920,"Height":1080,"Framerate":5.4E1,"Format":"","Type":"","URI":""}
+        # index = 0
+        # topic_split = ["VWController", "Camera00", "IP"]
+        # payload = {"IP":"10.1.3.71","DisplayName":"Tip","Width":1920,"Height":1080,"Framerate":5.4E1,"Format":"","Type":"","URI":""}
+
 
         camera = self.cameras.get(cam_id, None)
+        
         if camera is None:
             camera = Camera(id=cam_id)
             self.cameras[cam_id] = camera
 
-        if command == 'IP':
-            camera.ip = payload
-        elif command == 'Type':
-            camera.type = payload
-            camera.has_zoom = payload != 'Basler'
+        payload = json.loads(payload)    
 
-            if camera.type == "Compressed":
-                try: 
-                    controller = ViscaController(camera.ip, 1000)
-                    self._run_with_timeout(camera.set_controller, args=(ViscaController(camera.ip, 1000),))
-                except OSError as e:
-                    logger.warning(f"Camera {camera.ip}: Failed to connect visca controller: {e}")
+        camera.ip = payload.get('IP', camera.ip)
+        camera.uri = payload.get('URI', camera.uri)
+        camera.name = payload.get('DisplayName', camera.name)
+        camera.type = payload.get('Type', camera.type)
+        camera.provider = self.camera_providers.get(camera.type, None)
+        camera.width = int(payload.get('Width', camera.width))
+        camera.height = int(payload.get('Height', camera.height))
+        camera.framerate = float(payload.get('Framerate', camera.framerate))
+        camera.format = payload.get('Format', camera.format)
 
-        elif command == 'Name':
-            camera.name = payload
-        elif command == 'Width':
-            camera.width = int(payload)
-        elif command == 'Height':
-            camera.height = int(payload)
-        elif command == 'Format':
-            camera.format = payload
-        elif command == 'Framerate':
-            camera.framerate = float(payload)
+        self.cameras[cam_id] = camera
 
+        logger.debug(f"Camera {cam_id} updated: {camera}")
 
         # self._run_with_timeout(self.pipeline_manager.update_camera_features, args=(camera.ip,))
 
