@@ -1,7 +1,111 @@
-FROM nvcr.io/nvidia/deepstream:7.1-triton-multiarch
+# Build example:
+# docker buildx build -t vwvisioncontrollerinfer:7.0 .
+# docker buildx build --build-arg DEEPSTREAM_VERSION=7.1 --build-arg BUILD_YOLO=false --build-arg BUILD_ARAVIS=true --build-arg BUILD_TISCAMERA=true --build-arg ARCH=aarch64 -t vwvisioncontrollerinfer:7.1 .
+
+# Available Build Options:
+# ----------------------
+# 1. DEEPSTREAM_VERSION (default: 7.0)
+#    - 7.0: Uses CUDA 12.2 and Python Apps 1.1.11
+#    - 7.1: Uses CUDA 12.6 and Python Apps 1.2.0
+#
+# 2. CUDA_VERSION (default: 12.2)
+#    - 12.2: Used with Deepstream 7.0
+#    - 12.6: Used with Deepstream 7.1
+#
+# 3. PYTHON_APPS_VERSION (default: 1.1.11)
+#    - 1.1.11: Used with Deepstream 7.0
+#    - 1.2.0: Used with Deepstream 7.1
+#
+# 4. ARCH (default: x86_64)
+#    - x86_64: For x86_64 architecture
+#    - aarch64: For ARM64 architecture
+#
+# 5. BUILD_ARAVIS (default: false)
+#    - true: Installs Aravis camera support
+#    - false: Skips Aravis installation
+#
+# 6. BUILD_TISCAMERA (default: false)
+#    - true: Installs TISCAMERA support
+#    - false: Skips TISCAMERA installation
+#
+# 7. BUILD_YOLO (default: true)
+#    - true: Installs and builds YOLO inference components
+#    - false: Skips YOLO installation
+#
+#
+#
+# Example Build Commands:
+# ----------------------
+# 1. Basic build with Deepstream 7.0:
+#    docker buildx build -t vwvisioncontrollerinfer:7.0 .
+#
+# 2. Deepstream 7.1 with all components for ARM64:
+#    docker buildx build \
+#      --build-arg DEEPSTREAM_VERSION=7.1 \
+#      --build-arg BUILD_YOLO=true \
+#      --build-arg BUILD_ARAVIS=true \
+#      --build-arg BUILD_TISCAMERA=true \
+#      --build-arg ARCH=aarch64 \
+#      -t vwvisioncontrollerinfer:7.1 .
+#
+# 3. Deepstream 7.0 with only YOLO:
+#    docker buildx build \
+#      --build-arg BUILD_ARAVIS=false \
+#      --build-arg BUILD_TISCAMERA=false \
+#      -t vwvisioncontrollerinfer:7.0-yolo .
+#
+# 4. Deepstream 7.1 with only camera support:
+#    docker buildx build \
+#      --build-arg DEEPSTREAM_VERSION=7.1 \
+#      --build-arg BUILD_YOLO=false \
+#      --build-arg BUILD_ARAVIS=true \
+#      --build-arg BUILD_TISCAMERA=true \
+#      -t vwvisioncontrollerinfer:7.1-cameras .
+
+# Default arguments
+ARG DEEPSTREAM_VERSION=7.0
+ARG CUDA_VERSION=12.2
+ARG PYTHON_APPS_VERSION=1.1.11
+ARG ARCH=x86_64
+ARG BUILD_ARAVIS=false
+ARG BUILD_TISCAMERA=false
+ARG BUILD_YOLO=true
+
+# Base image
+FROM nvcr.io/nvidia/deepstream:${DEEPSTREAM_VERSION}-triton-multiarch
+
+# Need to re-declare arguments after "FROM"
+ARG DEEPSTREAM_VERSION
+ARG CUDA_VERSION
+ARG PYTHON_APPS_VERSION
+ARG ARCH
+ARG BUILD_ARAVIS
+ARG BUILD_TISCAMERA
+ARG BUILD_YOLO
+
+# Check if CUDA_VERSION and PYTHON_APPS_VERSION match the expected values for the selected Deepstream version
+RUN if [ "${DEEPSTREAM_VERSION}" = "7.0" ]; then \
+      if [ "${CUDA_VERSION}" != "12.2" ] || [ "${PYTHON_APPS_VERSION}" != "1.1.11" ]; then \
+        echo "Not correct config" && \
+        echo "For Deepstream 7.0, expected CUDA_VERSION=12.2 and PYTHON_APPS_VERSION=1.1.11" && \
+        echo "But got CUDA_VERSION=${CUDA_VERSION}, PYTHON_APPS_VERSION=${PYTHON_APPS_VERSION}" && \
+        exit 1; \
+      fi ; \
+    elif [ "${DEEPSTREAM_VERSION}" = "7.1" ]; then \
+      if [ "${CUDA_VERSION}" != "12.6" ] || [ "${PYTHON_APPS_VERSION}" != "1.2.0" ]; then \
+        echo "Not correct config" && \
+        echo "For Deepstream 7.1, expected CUDA_VERSION=12.6 and PYTHON_APPS_VERSION=1.2.0" && \
+        echo "But got CUDA_VERSION=${CUDA_VERSION}, PYTHON_APPS_VERSION=${PYTHON_APPS_VERSION}" && \
+        exit 1; \
+      fi ; \
+    else \
+      echo "Unsupported Deepstream version: ${DEEPSTREAM_VERSION}" && exit 1 ; \
+    fi
+
 
 ARG DEBIAN_FRONTEND="noninteractive"
 
+# Common package installation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Networking tools
     net-tools \
@@ -61,87 +165,97 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     \
     && rm -rf /var/lib/apt/lists/*
 
-
 # Deepstream Additional Installs
 RUN /opt/nvidia/deepstream/deepstream/user_additional_install.sh
+RUN /opt/nvidia/deepstream/deepstream/user_deepstream_python_apps_install.sh -v ${PYTHON_APPS_VERSION}
+# RUN /opt/nvidia/deepstream/deepstream/user_deepstream_python_apps_install.sh -v
 
 
-# RUN ls -l /opt/nvidia/deepstream/deepstream/lib/libnvbufsurface.so \
-#     && echo "nvbufsurface-library found, proceeding with CMake" \
-#     || (echo "nvbufsurface-library not found, aborting" && exit 1)
+# Install YOLO - Setup directories and clone repositories
+RUN if [ "$BUILD_YOLO" = "true" ] ; then \
+    mkdir -p /app && cd /app && \
+    git clone https://github.com/ultralytics/ultralytics && \
+    git clone https://github.com/marcoslucianops/DeepStream-Yolo.git ; \
+    fi
 
-# Install Deepstream-Python-Apps
+# Install YOLO - Install Python dependencies
+RUN if [ "$BUILD_YOLO" = "true" ] ; then \
+    cd /app/ultralytics && \
+    PIP_CACHE_DIR=/tmp/pipcache pip install -e ".[export]" onnxslim && \
+    rm -rf /tmp/pipcache ; \
+    fi
 
-# WORKDIR /opt/nvidia/deepstream/deepstream/sources/
-
-# RUN git clone https://github.com/NVIDIA-AI-IOT/deepstream_python_apps \
-#     && cd deepstream_python_apps \
-#     && git submodule update --init \
-#     && apt-get update && apt-get install -y apt-transport-https ca-certificates -y \
-#     && update-ca-certificates \
-#     && cd 3rdparty/gstreamer/subprojects/gst-python/ \
-#     && meson setup build \
-#     && cd build \
-#     && ninja \
-#     && ninja install \
-#     && cd /opt/nvidia/deepstream/deepstream/sources/deepstream_python_apps/bindings \ 
-#     && mkdir build 
-#     # && cd build \
-#     # && cmake .. -DPIP_PLATFORM=linux_aarch64 \
-#     # && make -j$(nproc) \
-#     # && pip3 install ./pyds-*.whl
-
-
-# Visca IP Controller
-COPY /VISCA-IP-Controller /tmp/VISCA-IP-Controller
-WORKDIR /tmp/VISCA-IP-Controller
-RUN pip3 install .
-
-
-# Install Deepstream-Yolo
-# https://docs.ultralytics.com/guides/deepstream-nvidia-jetson/
-# Jetson script also works for x86
-WORKDIR /app
-RUN git clone https://github.com/ultralytics/ultralytics && \
-    cd ultralytics && \
-    pip install -e ".[export]" onnxslim
-
-RUN git clone https://github.com/marcoslucianops/DeepStream-Yolo.git && \
+# Install YOLO - Export model
+RUN if [ "$BUILD_YOLO" = "true" ] ; then \
     cp /app/DeepStream-Yolo/utils/export_yoloV8.py /app/ultralytics && \
-    cd ultralytics && \
+    cd /app/ultralytics && \
     wget https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s.pt && \
     python3 export_yoloV8.py -w yolo11s.pt && \
     cp yolo11s.pt.onnx labels.txt /app/DeepStream-Yolo && \
-    mv /app/DeepStream-Yolo/yolo11s.pt.onnx /app/DeepStream-Yolo/yolo11l.pt.onnx
+    mv /app/DeepStream-Yolo/yolo11s.pt.onnx /app/DeepStream-Yolo/yolo11l.pt.onnx ; \
+    fi
 
-ENV CUDA_VER=12.6
-WORKDIR /app/DeepStream-Yolo
-RUN make -C nvdsinfer_custom_impl_Yolo clean \
-    && make -C nvdsinfer_custom_impl_Yolo
-
-
-# Install Deepstream-Yolo Segmentation
-# WORKDIR /app git clone https://github.com/marcoslucianops/DeepStream-Yolo-Seg.git && \
-#     cd DeepStream-Yolo-Seg && \
-
-#     && make -C nvdsinfer_custom_impl_Yolo_seg
+# Install YOLO - Cleanup and build
+RUN if [ "$BUILD_YOLO" = "true" ] ; then \
+    rm -rf /app/ultralytics && \
+    export CUDA_VER=${CUDA_VERSION} && \
+    cd /app/DeepStream-Yolo && \
+    make -C nvdsinfer_custom_impl_Yolo clean && \
+    make -C nvdsinfer_custom_impl_Yolo ; \
+    fi
 
 
 
+# Optional: Install Aravis
+ARG BUILD_ARAVIS
+RUN if [ "$BUILD_ARAVIS" = "true" ] ; then \
+    mkdir -p /tmp/aravis && cd /tmp/aravis && \
+    git clone https://github.com/AravisProject/aravis.git && \
+    meson setup build -Dviewer=enabled -Dintrospection=enabled && \
+    ninja -C build && \
+    ninja -C build install && \
+    cd .. && rm -rf aravis ; \
+    fi
 
-ENV GST_PLUGIN_PATH="/usr/local/lib/x86_64-linux-gnu/gstreamer-1.0:${GST_PLUGIN_PATH:-}"
-ENV LD_LIBRARY_PATH="/usr/local/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
-# ENV GST_PLUGIN_PATH="/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0"
-# ENV LD_LIBRARY_PATH="/usr/local/lib/aarch64-linux-gnu:$LD_LIBRARY_PATH"
+# Optional: Install TISCAMERA
+ARG BUILD_TISCAMERA
+RUN if [ "$BUILD_TISCAMERA" = "true" ] ; then \
+    apt-get update && apt-get install -y sudo libzip-dev && \
+    pip3 install sphinx && \
+    git clone https://github.com/TheImagingSource/tiscamera.git && \
+    cd tiscamera && \
+    git checkout v-tiscamera-1.1.0 && ./scripts/dependency-manager install && \
+    mkdir build && cd build && cmake .. \
+    -DTCAM_BUILD_ARAVIS=OFF \
+    -DTCAM_BUILD_TOOLS=OFF \
+    -DTCAM_BUILD_LIBUSB=OFF \
+    -DTCAM_BUILD_DOCUMENTATION=OFF\
+    -DTCAM_BUILD_V4L2=OFF \
+    -DTCAM_ARAVIS_USB_VISION=OFF\
+    -DTCAM_DOWNLOAD_MESON=OFF\
+    && make && make install \
+    && cd ../.. && rm -rf tiscamera ; \
+    fi
+
+# Set environment variables
+ENV GST_PLUGIN_PATH="/usr/local/lib/${ARCH}-linux-gnu/gstreamer-1.0:${GST_PLUGIN_PATH:-}"
+ENV LD_LIBRARY_PATH="/usr/local/lib/${ARCH}-linux-gnu:$LD_LIBRARY_PATH"
 ENV USE_NEW_NVSTREAMMUX="yes"
 
-# WORKDIR /app
-
+# Install Python requirements
 COPY requirements.txt /app/
+RUN pip3 install --no-cache-dir -r /app/requirements.txt
+
+# Copy application files
 COPY /VisionController/config/infer/ /app/DeepStream-Yolo/
-
-# # RUN pip3 install -r requirements.txt
-
 COPY /VisionController /app/VisionController
 
-ENV AXIS_URI=rtsp://root:root@10.2.0.81/axis-media/media.amp?streamprofile=stream-1
+# Install Vapix Python
+COPY /vapix-python /app/vapix-python
+RUN pip3 install --no-cache-dir -e /app/vapix-python
+
+# Set default environment variables
+ENV Z3_URI1=rtsp://10.1.3.71/stream-1.sdp 
+ENV Z3_URI2=rtsp://10.1.3.72/stream-1.sdp 
+ENV Z3_URI3=rtsp://10.1.3.73/stream-1.sdp 
+ENV AXIS_URI=rtsp://root:root@10.2.0.81/axis-media/media.amp?streamprofile=stream-1 
