@@ -141,19 +141,18 @@ class App():
         if self.camera_monitor_process and self.camera_monitor_process.is_alive():
             self.camera_monitor_process.join()
         logger.debug("|--> Joining handler thread")
-        self.handler_thread.join()
+        if self.handler_thread and self.handler_thread.is_alive():
+            self.handler_thread.join()
         
         logger.debug("|--> Joining mqtt thread")
-        self.mqtt_thread.join()
+        if self.mqtt_thread and self.mqtt_thread.is_alive():
+            self.mqtt_thread.join()
         
         logger.debug("|--> Joining pipeline thread")
-        self.pipeline_thread.join()
+        if self.pipeline_thread and self.pipeline_thread.is_alive():
+            self.pipeline_thread.join()
 
-        logger.info("All threads joined")
-        
-
-        print("Goodbye!")
-
+        logger.debug("All threads and processes joined")
 
     def _zoom_visca_tester(self):
         try:
