@@ -23,8 +23,7 @@ from VisionController.libs.mqtt.mqtt_client_ import MQTTClient
 from VisionController.libs.mqtt.mqtt_helper import load_mqtt_topics
 from VisionController.libs.utils import index_dataclass, parse_config, find_digits_in_string
 from VisionController.libs.camera import Camera
-from VisionController.libs.types import Source, SourceType
-from VisionController.libs.gui.gst_window import GstWindow
+from VisionController.libs.vw_types import Source, SourceType
 
 
 Gst.init(None)
