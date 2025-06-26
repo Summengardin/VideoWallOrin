@@ -5,7 +5,8 @@ from gi.repository import Gst
 import logging
 logger = logging.getLogger(__name__)
 
-
+if not Gst.is_initialized():
+    Gst.init(None)
 
 
 def decodebin_child_added(child_proxy, Object, name, user_data):
@@ -13,7 +14,7 @@ def decodebin_child_added(child_proxy, Object, name, user_data):
     if "decodebin" in name: 
         Object.connect("child-added", decodebin_child_added, user_data)
     if "nvv4l2decoder" in name:
-        Object.set_property("enable-max-performance", True)
+        # Object.set_property("enable-max-performance", True)
         Object.set_property("drop-frame-interval", 0)
         Object.set_property("num-extra-surfaces", 0)
 
@@ -39,8 +40,14 @@ def cb_newpad(decodebin, pad, data):
 
 
 
-def create_source_bin(index: int, uri: str) -> Gst.Bin:
+def create_source_bin(index: int, camera) -> Gst.Bin:
+    uri = camera.uri
+    if uri is None:
+        logger.error("URI is None")
+        return None
+
     logger.debug(f"Creating uridecodebin for {uri}")
+    
 
     bin_name = f"src{index}-bin"
 

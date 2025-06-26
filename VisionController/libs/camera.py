@@ -30,8 +30,7 @@ class Camera:
     exposure_time_auto: int = 2
     gain: float = None
     gain_auto: int = 2
-
-    visca_controller: ViscaController = None
+    provider: Dict[str, str] = None
                
 
     def set_controller(self, controller : ViscaController) -> bool:

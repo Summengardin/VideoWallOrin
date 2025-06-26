@@ -1,7 +1,8 @@
 import threading
 import time
 import queue
-from concurrent.futures import ThreadPoolExecutor
+import sys
+import importlib.util
 
 import gi
 gi.require_version('Gst', '1.0')
@@ -43,6 +44,7 @@ class App():
         self.mqtt_config = self.config['mqtt']
         self.pipeline_config = self.config['pipeline']
         self.general_config = self.config['general']
+        self.camera_providers = self.config['camera_providers']
 
         self.command_queue = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=4)
@@ -58,7 +60,8 @@ class App():
         # self.visca = ViscaController("10.1.3.78", self.general_config.get('visca_port'))
 
         self.cameras = {}
-        self.cameras['test'] = Camera(id = "Camera0", ip="test", width=1920, height=1080, framerate=60)
+        self.cameras['test'] = Camera(id = "Camera0", ip="test", type="Test", width=1920, height=1080, framerate=60)
+        self.cameras['test'].provider = self.camera_providers.get(self.cameras['test'].type, None)
 
         self._test_zoom_dir = 1
 
@@ -205,6 +208,8 @@ class App():
                     osd = json.loads(osd_value)
                     self.pipeline_manager.osd_managers[source_id].upsert_text_from_dict(osd, osd_key)
 
+            source.provider = self.camera_providers.get(source.type, None)
+            # source.width = int(payload.get('Width', source.width)) if 'Width' in payload else source.width
             if new_source_check:
                 # logger.debug(f"Removing old source")
 
@@ -228,6 +233,26 @@ class App():
                     logger.error(f"Could not add source {source_id}. {type(e).__name__}: {e}")
                     logger.debug(f"Adding placeholder source")
                     self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+                try:
+                    if source.provider is not None:
+                        module_path = source.provider.get("controller_module_path")
+                        module_name = module_path.split("/")[-1].split(".")[0:-1][0]
+
+                        if module_name in sys.modules:
+                            control_module = sys.modules[module_name]
+                        else:
+                            spec = importlib.util.spec_from_file_location(module_name, module_path)
+                            control_module = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(control_module)
+                            sys.modules[module_name] = control_module
+
+                            logger.debug(f"Imported module \"{module_name}\" for type \"{source.type}\", {module_path}") 
+
+                        source.control = control_module.CameraControl(source.camera)
+
+                except Exception as e:
+                    logger.error(f"Could not import control module for type \"{source.type}\": {e}")
+
             self.pipeline_manager.sources[source_id] = source
         if subcommand == 'Source':
             try:
