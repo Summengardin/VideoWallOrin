@@ -28,6 +28,8 @@ if Gst.is_initialized() == False:
 
 class PipelineManager:
     def __init__(self, config = None):
+        self.window_close_callback = None
+
         self.config = config
         self._initiate_config()
 
@@ -105,6 +107,7 @@ class PipelineManager:
 
         if state_ret == Gst.StateChangeReturn.FAILURE:
             logger.critical("Unable to set the pipeline to the playing state")
+            logger.info("Have you set the DISPLAY variable?     export DISPLAY=:0")
             return
 
     
@@ -172,8 +175,14 @@ class PipelineManager:
             sys.stderr.write("Warning: %s: %s\n" % (err, debug))
         elif t == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
-            sys.stderr.write("Error: %s: %s\n" % (err, debug))
-            # loop.quit()
+            logger.error(f"Error: {err}: {debug}\n")            
+            if err.message == "Output window was closed":
+                logger.error("Window closed, notifying app")
+                if self.window_close_callback:
+                    self.window_close_callback()
+                else:
+                    logger.warning("No window close callback set")
+            
         elif t == Gst.MessageType.ELEMENT:
             struct = message.get_structure()
             if struct is not None and struct.has_name("stream-eos"):
