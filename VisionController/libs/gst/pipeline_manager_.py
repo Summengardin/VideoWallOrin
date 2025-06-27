@@ -1022,22 +1022,23 @@ class PipelineManager:
                     text_dicts = texts.copy()
 
                     for i in range(display_meta.num_labels):
-                        label_meta = display_meta.text_params[i]
-                        label_meta.display_text = text_dicts[i]["text"]
+                        try:
+                            text_param = display_meta.text_params[i]
+                            text_param.display_text = text_dicts[i]["text"]
 
-
-                        x_off = 0
-                        if text_dicts[i]['alignment'] is not None:
-                            x_off = calculate_text_offset(text_dicts[i]["text"], text_dicts[i]["font_size"], text_dicts[i]['alignment'])
-                        
-                        label_meta.x_offset = text_dicts[i]["x"] + x_off
-                        label_meta.y_offset = text_dicts[i]["y"]
-                        label_meta.font_params.font_name = text_dicts[i]["font_name"]
-                        label_meta.font_params.font_size = text_dicts[i]["font_size"]
-                        label_meta.font_params.font_color.set(*text_dicts[i]["font_color"])
-                        label_meta.set_bg_clr = 1
-                        label_meta.text_bg_clr.set(*text_dicts[i]["bg_color"])
-
+                            x_off = 0
+                            if text_dicts[i]['alignment'] is not None:
+                                x_off = calculate_text_offset(text_dicts[i]["text"], text_dicts[i]["font_size"], text_dicts[i]['alignment'])
+                            
+                            text_param.x_offset = text_dicts[i]["x"]# + x_off
+                            text_param.y_offset = text_dicts[i]["y"]
+                            text_param.font_params.font_name = text_dicts[i]["font_name"]
+                            text_param.font_params.font_size = text_dicts[i]["font_size"]
+                            text_param.font_params.font_color.set(*text_dicts[i]["font_color"])
+                            text_param.set_bg_clr = 1
+                            text_param.text_bg_clr.set(*text_dicts[i]["bg_color"])
+                        except Exception as e:
+                            logger.error(f"Unable to display text, id: {i} : \"{text_dicts[i]['text']}\". \nError: {type(e)}: {e}")
 
                 lines = osd_manager.get_all_lines_as_dicts()
                 if len(lines) > 0:
@@ -1091,15 +1092,15 @@ class PipelineManager:
                     
 
                 display_meta.num_labels += 1
-                label_meta = display_meta.text_params[display_meta.num_labels - 1]
-                label_meta.display_text = pts_text["text"]
-                label_meta.x_offset = pts_text["x"]
-                label_meta.y_offset = pts_text["y"]
-                label_meta.font_params.font_name = pts_text["font_name"]
-                label_meta.font_params.font_size = pts_text["font_size"]
-                label_meta.font_params.font_color.set(*pts_text["font_color"])
-                label_meta.set_bg_clr = 1
-                label_meta.text_bg_clr.set(*pts_text["bg_color"])
+                text_param = display_meta.text_params[display_meta.num_labels - 1]
+                text_param.display_text = pts_text["text"]
+                text_param.x_offset = pts_text["x"]
+                text_param.y_offset = pts_text["y"]
+                text_param.font_params.font_name = pts_text["font_name"]
+                text_param.font_params.font_size = pts_text["font_size"]
+                text_param.font_params.font_color.set(*pts_text["font_color"])
+                text_param.set_bg_clr = 1
+                text_param.text_bg_clr.set(*pts_text["bg_color"])
 
                 pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
                 
