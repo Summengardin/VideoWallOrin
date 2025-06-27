@@ -16,8 +16,6 @@ from gi.repository import Gst, GLib
 import logging
 logger = logging.getLogger(__name__)
 
-
-from visca_over_ip.camera import Camera as ViscaController
 from VisionController.libs.gst.pipeline_manager_ import PipelineManager
 from VisionController.libs.mqtt.mqtt_client_ import MQTTClient
 from VisionController.libs.mqtt.mqtt_helper import load_mqtt_topics
@@ -29,19 +27,10 @@ from VisionController.libs.vw_types import Source, SourceType
 if not Gst.is_initialized():
     Gst.init(None)
 
-seq_step = 0
-add_remove = 1
-
-
-
-
 
 class App():
 
     def __init__(self, config_file):
-
-
-
 
         self.config_file = config_file
         self.config = parse_config(config_file)
@@ -56,7 +45,6 @@ class App():
         self.topics = load_mqtt_topics(self.mqtt_config)
         self.mqtt_client = MQTTClient(self.mqtt_config.get('broker'), self.mqtt_config.get('port'), self.topics)
         self.mqtt_client.set_on_message_callback(self._cb_mqtt_on_message)
-
 
 
         self.pipeline_manager = PipelineManager(self.pipeline_config)
@@ -105,11 +93,8 @@ class App():
 
         time.sleep(1)
 
-
-
         self.handler_thread = threading.Thread(target=self._mqtt_command_handler)
         self.handler_thread.start()
-    
 
         self.mqtt_thread = threading.Thread(target=self.mqtt_client.start)
         self.mqtt_thread.start()
@@ -129,7 +114,6 @@ class App():
         logger.debug("|--> Stopping command queue")
         self.command_queue.put(None)
 
-        
         logger.debug("|--> Stopping pipeline manager")
         self.pipeline_manager.stop()
 
@@ -180,6 +164,7 @@ class App():
             msg = self.command_queue.get()
             if msg is None:
                 break
+
             topic, payload = msg
             logger.debug(f"Dequeued:  {topic}: {payload}")
 
