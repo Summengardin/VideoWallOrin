@@ -453,6 +453,7 @@ class PipelineManager:
             if camera is not None and camera.provider is not None:
                 self.sources[source_id].ip = camera.ip
                 self.sources[source_id].camera = camera
+                self.sources[source_id].type = camera.type
 
                 try:
                     module_path = camera.provider.get("source_bin_path")
@@ -485,7 +486,7 @@ class PipelineManager:
                         self.sources[source_id].active = True
                     
                     self.sources[source_id].name = camera.ip
-                    self.sources[source_id].type = camera.type
+                    
 
                     added_source = True
             
