@@ -26,7 +26,8 @@ from VisionController.libs.camera import Camera
 from VisionController.libs.vw_types import Source, SourceType
 
 
-Gst.init(None)
+if not Gst.is_initialized():
+    Gst.init(None)
 
 seq_step = 0
 add_remove = 1
