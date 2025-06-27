@@ -57,9 +57,10 @@ class App():
         self.camera_uris = self.manager.dict()
 
         self.cameras = {}
-        self.cameras['test'] = Camera(id = "Camera0", ip="test", type="Test", width=1920, height=1080, framerate=60)
+        self.cameras['test'] = Camera(id = "Test", ip="test", type="Test", width=1920, height=1080, framerate=60)
         self.cameras['test'].provider = self.camera_providers.get(self.cameras['test'].type, None)
-
+        self.cameras['placeholder'] = Camera(id = "Placeholder", ip="test", type="Test", width=1920, height=1080, framerate=60)
+        self.cameras['placeholder'].provider = self.camera_providers.get(self.cameras['test'].type, None)
 
 
         # Store desired source configurations
