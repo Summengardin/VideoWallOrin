@@ -131,7 +131,7 @@ class OSDManager:
     def __del__(self):
         self.stop()
 
-    def add_triangle(self, x: int, y: int, radius: int, line_width: int, line_color: Tuple[float, float, float, float], angle: float = 0, timeout: Optional[float] = None, triangle_id: Optional[str] = None) -> int:
+    def create_triangle(self, x: int, y: int, radius: int, line_width: int, line_color: Tuple[float, float, float, float], angle: float = 0, timeout: Optional[float] = None, triangle_id: Optional[str] = None) -> int:
         # vertices = build_triangle((x, y), radius, angle)
         if triangle_id is None:
             triangle_id = self._generate_id()
@@ -142,7 +142,7 @@ class OSDManager:
         }
         return triangle_id
 
-    def add_polygon(self, vertices: List[Tuple[int, int]], line_width: int, line_color: Tuple[float, float, float, float], timeout: Optional[float] = None, polygon_id: Optional[str] = None) -> int:
+    def create_polygon(self, vertices: List[Tuple[int, int]], line_width: int, line_color: Tuple[float, float, float, float], timeout: Optional[float] = None, polygon_id: Optional[str] = None) -> int:
         if polygon_id is None:
             polygon_id = self._generate_id()
         self.elements[polygon_id] = {
@@ -152,7 +152,15 @@ class OSDManager:
         }
         return polygon_id
 
-    def add_text(self, text: str, x: int, y: int, alignment: str, font_size: int, color: Tuple[float, float, float, float], bg_color: Tuple[float, float, float, float], timeout: Optional[float] = None, text_id: Optional[str] = None) -> int:
+    def create_text(self, text: str = "", 
+                            x: int = 0, 
+                            y: int = 0, 
+                            alignment: str = "left", 
+                            font_size: int = None, 
+                            color: Tuple[float, float, float, float] = None, 
+                            bg_color: Tuple[float, float, float, float] = None, 
+                            timeout: Optional[float] = None, 
+                            text_id: Optional[str] = None) -> int:
         if text_id is None:
             text_id = self._generate_id()
         try:
@@ -223,7 +231,7 @@ class OSDManager:
 
             return triangle_id
 
-        return self.add_triangle(x, y, radius, line_width, line_color, angle, timeout, triangle_id)
+        return self.create_triangle(x, y, radius, line_width, line_color, angle, timeout, triangle_id)
 
     def upsert_text(self,
                     text: str,
@@ -304,7 +312,7 @@ class OSDManager:
                 timeout=float(text_dict.get("timeout", None))
             )
 
-        return self.add_text(
+        return self.create_text(
             text=text_dict.get("text", ""),
             x=int(text_dict.get("pos_x", 0)),
             y=int(text_dict.get("pos_y", 0)),
