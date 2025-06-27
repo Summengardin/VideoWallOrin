@@ -41,6 +41,8 @@ class App():
         self.general_config = self.config['general']
         self.camera_providers = self.config['camera_providers']
 
+        logger.debug(f"Camera providers: {self.camera_providers}")  
+
         self.command_queue = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=4)
         
@@ -108,7 +110,7 @@ class App():
         self.camera_monitor_process.start()
 
     def stop(self):
-        
+        """Stop the application and clean up resources"""
         logger.info("Stopping app")
         logger.debug("|--> Stopping monitor threads and process")
         self.camera_monitor_stop_event.set()
@@ -169,7 +171,7 @@ class App():
                 break
 
             topic, payload = msg
-            logger.debug(f"Dequeued:  {topic}: {payload}")
+            # logger.debug(f"Dequeued:  {topic}: {payload}")
 
             topic_split = topic.split('/')
 
@@ -571,7 +573,6 @@ class App():
 
         payload = json.loads(payload)    
 
-        camera.ip = payload.get('IP', camera.ip)
         camera.uri = payload.get('URI', camera.uri)
         parsed = urlparse(camera.uri)
 
@@ -589,7 +590,6 @@ class App():
         logger.debug(f"Camera {cam_id} updated: {camera}")
 
         # self._run_with_timeout(self.pipeline_manager.update_camera_features, args=(camera.ip,))
-
 
 
     def _update_pipeline_config(self, command, payload):
@@ -620,11 +620,12 @@ class App():
 
 
     def _cb_mqtt_on_message(self, client, userdata, message):
+        """Callback function for MQTT on message. Put the message in the command queue."""
         payload = message.payload.decode('utf-8')
         self.command_queue.put((message.topic, payload))
-        logger.debug(f"Queued:    {message.topic}: {payload}")
+        # logger.debug(f"Queued:    {message.topic}: {payload}")
 
-    def _check_rtsp_feed(self, uri, timeout_seconds=0.3):
+    def _check_rtsp_feed(self, uri, timeout_seconds=0.4):
         """Check if an RTSP feed is available using ffprobe."""
         timeout_microseconds = int(timeout_seconds * 1000000)
         cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-stimeout', f'{timeout_seconds}', '-i', uri,
