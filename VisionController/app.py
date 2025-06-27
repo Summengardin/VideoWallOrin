@@ -7,6 +7,7 @@ import re
 import multiprocessing as mp
 import sys
 import importlib.util
+from urllib.parse import urlparse
 
 import gi
 gi.require_version('Gst', '1.0')
@@ -570,6 +571,9 @@ class App():
 
         camera.ip = payload.get('IP', camera.ip)
         camera.uri = payload.get('URI', camera.uri)
+        parsed = urlparse(camera.uri)
+
+        camera.ip = parsed.hostname
         camera.name = payload.get('DisplayName', camera.name)
         camera.type = payload.get('Type', camera.type)
         camera.provider = self.camera_providers.get(camera.type, None)
