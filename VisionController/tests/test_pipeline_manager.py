@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from VisionController.libs.camera import Camera
-from VisionController.libs.types import SourceType
+from VisionController.libs.vw_types import SourceType
 from VisionController.libs.gst.pipeline_manager import PipelineManager
 
 # Sample configuration for testing

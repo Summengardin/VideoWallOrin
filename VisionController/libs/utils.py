@@ -62,7 +62,7 @@ def float_to_fraction(float_number, max_denominator=1000) -> tuple[int, int]:
     return fraction.numerator, fraction.denominator
 
 
-def scale(value, from_min = 0, from_max = 1, to_min = 0, to_max = 100):
+def scale(value, from_min = 0.0, from_max = 1.0, to_min = 0.0, to_max = 100.0):
     """
     Scale a value from one range to another.
 
@@ -76,7 +76,7 @@ def scale(value, from_min = 0, from_max = 1, to_min = 0, to_max = 100):
     return (value - from_min) * (to_max - to_min) / (from_max - from_min) + to_min
 
 
-def clamp(value, lower, upper):
+def clamp(value, lower=0.0, upper=1.0):
     """
     Clamp a value between a minimum and maximum value.
 
@@ -135,15 +135,22 @@ def calculate_text_offset(text: str, font_size: int, alignment: str) -> int:
     """
     # Estimate the width of the text based on its length and the font size
     estimated_text_width = len(text) * (font_size // 1.1)
-
+    
+    alignment = alignment.lower()
     if alignment == 'center' or alignment == 'c':
         # Calculate the offset to center the text
         offset = -estimated_text_width // 2
     elif alignment == 'right' or alignment == 'r':
         # Calculate the offset to align the text to the right
         offset = -estimated_text_width
+    elif alignment == 'left' or alignment == 'l':
+        # No offset needed for left alignment
+        offset = 0
+    elif alignment == None:
+        # No offset needed for left alignment
+        offset = 0
     else:
-        raise ValueError("Alignment must be either 'center' or 'right'.")
+        raise ValueError(f"on '{alignment}'. Alignment must be either 'left', 'center' or 'right'.")
 
     return int(offset)
 

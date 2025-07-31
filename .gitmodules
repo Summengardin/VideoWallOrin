@@ -1,3 +1,6 @@
 [submodule "VISCA-IP-Controller"]
 	path = VISCA-IP-Controller
 	url = git@github.com:misterhay/VISCA-IP-Controller.git
+[submodule "vapix-python"]
+	path = vapix-python
+	url = git@github.com:Summengardin/vapix-python.git
