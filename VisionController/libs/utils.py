@@ -62,7 +62,7 @@ def float_to_fraction(float_number, max_denominator=1000) -> tuple[int, int]:
     return fraction.numerator, fraction.denominator
 
 
-def scale(value, from_min = 0, from_max = 1, to_min = 0, to_max = 100):
+def scale(value, from_min = 0.0, from_max = 1.0, to_min = 0.0, to_max = 100.0):
     """
     Scale a value from one range to another.
 
