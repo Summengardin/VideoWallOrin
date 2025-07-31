@@ -4,6 +4,8 @@ import time
 import signal
 import logging
 import threading
+import faulthandler
+faulthandler.enable()
 
 from VisionController.app import App
 
@@ -43,19 +45,15 @@ if __name__ == "__main__":
     try:
         app = App(config_file=args.config)
         
-        # Set up signal handlers
         signal.signal(signal.SIGINT, handle_shutdown)
         signal.signal(signal.SIGTERM, handle_shutdown)
         
-        # Set window close callback
         app.pipeline_manager.set_window_close_callback(lambda: handle_window_close(app))
         
-        # Start the application
         app.run()
         
-        # Main loop - wait for shutdown event
         while not shutdown_event.is_set():
-            time.sleep(0.1)  # Reduced sleep time for more responsive shutdown
+            time.sleep(0.1)
             
         logging.info("Shutdown initiated, stopping application...")
         
@@ -64,9 +62,7 @@ if __name__ == "__main__":
         shutdown_event.set()
         
     finally:
-        if 'app' in locals():
-            logging.info("Stopping the app...")
-            app.stop()
+        app.stop()
         logging.info("Shutdown complete. Goodbye!")
 
 
