@@ -107,10 +107,11 @@ ARG DEBIAN_FRONTEND="noninteractive"
 
 # Common package installation
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Networking tools
+    # Tools
     net-tools \
     iputils-ping \
     kmod \
+    ffmpeg \
     \
     # GStreamer and plugins
     gstreamer1.0-qt5 \
