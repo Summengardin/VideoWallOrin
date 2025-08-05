@@ -4,10 +4,22 @@
 
 
 services:
-  videowall:
-    image: vwvisioncontroller
+  visioncontroller:
+    image: vw-visioncontroller
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - DEEPSTREAM_VERSION=7.0
+        - CUDA_VERSION=12.2
+        - PYTHON_APPS_VERSION=1.1.11
+        - ARCH=x86_64
+        - BUILD_ARAVIS=false
+        - BUILD_TISCAMERA=false
+        - BUILD_YOLO=false
+    container_name: visioncontroller
     runtime: nvidia
-    command: /bin/bash
+    command: python3 -m VisionController
     deploy:
       resources:
         reservations:
@@ -16,7 +28,7 @@ services:
               count: all
               capabilities: [gpu]
     environment:
-      - DISPLAY=${DISPLAY}
+      - DISPLAY=:0
       - NVIDIA_DRIVER_CAPABILITIES=all
       - NVIDIA_VISIBLE_DEVICES=all
       - QT_X11_NO_MITSHM=1
@@ -25,6 +37,9 @@ services:
       - /etc/X11:/etc/X11
       - ~/.Xauthority:/root/.Xauthority
       - ./tmp:/app/tmp
+      - type: bind
+        source: VisionController
+        target: /app/VisionController
     network_mode: host
     working_dir: /app
     tty: true
@@ -53,6 +68,10 @@ services:
       - /etc/X11:/etc/X11
       - ~/.Xauthority:/root/.Xauthority
       - ./tmp:/app/tmp
+      - type: bind
+        source: visioncontroller
+        target: /app/VisionController
+      # - ./VisionController:/app/VisionController
     network_mode: host
     working_dir: /app
     tty: true
