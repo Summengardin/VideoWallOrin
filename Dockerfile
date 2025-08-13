@@ -250,6 +250,7 @@ RUN pip3 install --no-cache-dir -r /app/requirements.txt
 # Copy application files
 COPY /VisionController/config/infer/ /app/DeepStream-Yolo/
 COPY /VisionController /app/VisionController
+COPY /VisionController/data/fonts/ /usr/share/fonts/truetype/
 
 # Install Vapix Python
 COPY /vapix-python /app/vapix-python
