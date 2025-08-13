@@ -1041,6 +1041,27 @@ class PipelineManager:
                         except Exception as e:
                             logger.error(f"Unable to display text, id: {i} : \"{text_dicts[i]['text']}\". \nError: {type(e)}: {e}")
 
+                symbols = osd_manager.get_all_symbols_as_dicts()
+                symbol_display_metas = [pyds.nvds_acquire_display_meta_from_pool(batch_meta) for _ in range(len(symbols) % 16 )]  # Max 16 elements per display meta
+                
+                
+
+                for idx, symbol in enumerate(symbols):
+                    symbol_meta = symbol_display_metas[idx // 16]
+                    if idx % 16 == 0:
+                        symbol_meta.num_labels = 16
+                    text_params = symbol_meta.text_params[idx % 16]
+                    text_params.display_text = symbol["symbol"]
+                    text_params.x_offset = symbol["x"]
+                    text_params.y_offset = symbol["y"] + self.icon_y_offsets[idx % len(self.icon_y_offsets)]
+                    text_params.font_params.font_name = symbol["font_name"]
+                    text_params.font_params.font_size = symbol["font_size"]
+                    text_params.font_params.font_color.set(*symbol["font_color"])
+                    text_params.set_bg_clr = 1
+                    text_params.text_bg_clr.set(*symbol["bg_color"])
+
+                for meta in symbol_display_metas:
+                    pyds.nvds_add_display_meta_to_frame(frame_meta, meta)
                 lines = osd_manager.get_all_lines_as_dicts()
                 if len(lines) > 0:
 
