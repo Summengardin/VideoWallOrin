@@ -12,6 +12,7 @@ from collections import OrderedDict
 from typing import Tuple
 from dataclasses import dataclass 
 from enum import Enum
+from datetime import datetime
 import pyds
 import importlib
 import re
@@ -26,6 +27,7 @@ from VisionController.libs.camera import Camera
 from VisionController.libs.cameras.placeholder_source_bin import create_source_bin as create_placeholder_source_bin
 from VisionController.libs.cameras.nvuri_source_bin import create_source_bin as create_nvuri_source_bin
 from VisionController.libs.utils import index_dataclass, scale, clamp, calculate_text_offset
+from VisionController.libs.material_symbols import material_symbols
 from VisionController.libs.vw_types import Source, SourceType
 from VisionController.libs.gst.osd_manager import OSDManager
 
@@ -302,7 +304,7 @@ class PipelineManager:
         self.nvosd.set_property("gpu-id", 0)
         self.nvosd.set_property("process-mode", 1)
         self.nvosd.set_property("display-text", True)
-        self.nvosd.set_property("display-clock", True)
+        # self.nvosd.set_property("display-clock", True)
         # self.nvosd.set_property("clock-font-size", 30)
         # self.nvosd.set_property("x-clock-offset", 100)
         # self.nvosd.set_property("y-clock-offset", 100)
@@ -1016,7 +1018,7 @@ class PipelineManager:
             #     "bg_color": (0.0, 0.0, 0.0, 0.6)
             # }]
 
-                texts = osd_manager.get_all_texts()
+                texts = osd_manager.get_all_texts_as_dicts()
                 if len(texts) > 0:
 
                     display_meta.num_labels = len(texts)
@@ -1040,7 +1042,27 @@ class PipelineManager:
                             text_param.text_bg_clr.set(*text_dicts[i]["bg_color"])
                         except Exception as e:
                             logger.error(f"Unable to display text, id: {i} : \"{text_dicts[i]['text']}\". \nError: {type(e)}: {e}")
+                
+                symbols = osd_manager.get_all_symbols_as_dicts()
+                symbol_display_metas = [pyds.nvds_acquire_display_meta_from_pool(batch_meta) for _ in range(len(symbols) % 16 )]  # Max 16 elements per display meta
+                
+                for idx, symbol in enumerate(symbols):
+                    symbol_meta = symbol_display_metas[idx // 16]
+                    if idx % 16 == 0:
+                        symbol_meta.num_labels = 16
+                    text_params = symbol_meta.text_params[idx % 16]
+                    text_params.display_text = symbol["symbol"]
+                    text_params.x_offset = symbol["x"]
+                    text_params.y_offset = symbol["y"] + self.icon_y_offsets[idx % len(self.icon_y_offsets)]
+                    text_params.font_params.font_name = symbol["font_name"]
+                    text_params.font_params.font_size = symbol["font_size"]
+                    text_params.font_params.font_color.set(*symbol["font_color"])
+                    text_params.set_bg_clr = 1
+                    text_params.text_bg_clr.set(*symbol["bg_color"])
 
+                for meta in symbol_display_metas:
+                    pyds.nvds_add_display_meta_to_frame(frame_meta, meta)
+                
                 lines = osd_manager.get_all_lines_as_dicts()
                 if len(lines) > 0:
 
@@ -1195,6 +1217,7 @@ def get_triangle_points(center_x: int, center_y: int, size: int) -> Tuple[Tuple[
 
 import time
 import math
+
 
 moving_x = 0
 moving_y = 0

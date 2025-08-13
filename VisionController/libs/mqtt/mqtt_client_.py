@@ -54,10 +54,10 @@ class MQTTClient:
                 break
             except ConnectionRefusedError:
                 if self.running:
-                    logger.error("Connection to MQTT broker refused. Trying again.")
+                    logger.error(f"Connection to MQTT broker ({self.broker}:{self.port}) refused. Trying again.")
             except TimeoutError:
                 if self.running:
-                    logger.error("Reconnection to MQTT broker timed out. Trying again.")
+                    logger.error(f"Reconnection to MQTT broker ({self.broker}:{self.port}) timed out. Trying again.")
 
             self.connection_timeout.wait(5)
 

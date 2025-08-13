@@ -28,7 +28,7 @@ def test_add_text(manager: OSDManager):
     font_color = (0.5, 0.5, 0.5, 1.0)
     bg_color = (0.1, 0.1, 0.1, 0.5)
     
-    manager.add_text(0, text, x, y, font_size, font_color, bg_color)
+    manager.create_text(0, text, x, y, font_size, font_color, bg_color)
     
     assert len(manager.tiles[0]["texts"]) == initial_length + 1, "osd_text_dicts should have one more item"
     new_entry = manager.tiles[0]["texts"][-1]

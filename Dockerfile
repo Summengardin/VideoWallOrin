@@ -83,23 +83,24 @@ ARG BUILD_ARAVIS
 ARG BUILD_TISCAMERA
 ARG BUILD_YOLO
 
-# Check if CUDA_VERSION and PYTHON_APPS_VERSION match the expected values for the selected Deepstream version
-RUN if [ "${DEEPSTREAM_VERSION}" = "7.0" ]; then \
-      if [ "${CUDA_VERSION}" != "12.2" ] || [ "${PYTHON_APPS_VERSION}" != "1.1.11" ]; then \
+SHELL ["/bin/bash", "-c"]
+
+RUN if [[ "${DEEPSTREAM_VERSION}" == "7.0" ]]; then \
+      if [[ ${CUDA_VERSION} != 12.2* ]] || [[ "${PYTHON_APPS_VERSION}" != "1.1.11" ]]; then \
         echo "Not correct config" && \
         echo "For Deepstream 7.0, expected CUDA_VERSION=12.2 and PYTHON_APPS_VERSION=1.1.11" && \
-        echo "But got CUDA_VERSION=${CUDA_VERSION}, PYTHON_APPS_VERSION=${PYTHON_APPS_VERSION}" && \
+        echo "But got CUDA_VERSION='${CUDA_VERSION}', PYTHON_APPS_VERSION='${PYTHON_APPS_VERSION}'" && \
         exit 1; \
-      fi ; \
-    elif [ "${DEEPSTREAM_VERSION}" = "7.1" ]; then \
-      if [ "${CUDA_VERSION}" != "12.6" ] || [ "${PYTHON_APPS_VERSION}" != "1.2.0" ]; then \
+      fi; \
+    elif [[ "${DEEPSTREAM_VERSION}" == "7.1" ]]; then \
+      if [[ ${CUDA_VERSION} != 12.6* ]] || [[ "${PYTHON_APPS_VERSION}" != "1.2.0" ]]; then \
         echo "Not correct config" && \
         echo "For Deepstream 7.1, expected CUDA_VERSION=12.6 and PYTHON_APPS_VERSION=1.2.0" && \
-        echo "But got CUDA_VERSION=${CUDA_VERSION}, PYTHON_APPS_VERSION=${PYTHON_APPS_VERSION}" && \
+        echo "But got CUDA_VERSION='${CUDA_VERSION}', PYTHON_APPS_VERSION='${PYTHON_APPS_VERSION}'" && \
         exit 1; \
-      fi ; \
+      fi; \
     else \
-      echo "Unsupported Deepstream version: ${DEEPSTREAM_VERSION}" && exit 1 ; \
+      echo "Unsupported Deepstream version: ${DEEPSTREAM_VERSION}" && exit 1; \
     fi
 
 
@@ -108,6 +109,7 @@ ARG DEBIAN_FRONTEND="noninteractive"
 # Common package installation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Tools
+    ffmpeg \
     net-tools \
     iputils-ping \
     kmod \
@@ -188,6 +190,8 @@ RUN if [ "$BUILD_YOLO" = "true" ] ; then \
 
 # Install YOLO - Export model
 RUN if [ "$BUILD_YOLO" = "true" ] ; then \
+    # Fix export_yoloV8.py for weights_only=False. Needed for torch>=2.6
+    sed -i "s/torch.load(weights, map_location='cpu')/torch.load(weights, map_location='cpu', weights_only=False)/" /app/DeepStream-Yolo/utils/export_yoloV8.py && \ 
     cp /app/DeepStream-Yolo/utils/export_yoloV8.py /app/ultralytics && \
     cd /app/ultralytics && \
     wget https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s.pt && \
@@ -250,6 +254,7 @@ RUN pip3 install --no-cache-dir -r /app/requirements.txt
 # Copy application files
 COPY /VisionController/config/infer/ /app/DeepStream-Yolo/
 COPY /VisionController /app/VisionController
+COPY /VisionController/data/fonts/ /usr/share/fonts/truetype/
 
 # Install Vapix Python
 COPY /vapix-python /app/vapix-python

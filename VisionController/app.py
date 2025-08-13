@@ -724,7 +724,7 @@ class App():
                     if self.camera_monitor_stop_event.wait(5):
                         break
 
-        logger.info("Camera monitor process stopped gracefully")
+        logger.info("Camera monitor process stopped")
 
 
 
@@ -756,7 +756,7 @@ class App():
                                 # Try to add the desired source
                                 success = self.pipeline_manager.add_source(source_id, camera=desired_camera)
                                 if success:
-                                    logger.info(f"Successfully connected source {source_id} to {desired_camera.ip}")
+                                    logger.info(f"Pipeline source {source_id} connected with {desired_camera.ip}")
                                 else:
                                     logger.error(f"Failed to connect source {source_id} to {desired_camera.ip}")
                                     # Add placeholder if connection failed
@@ -787,7 +787,7 @@ class App():
                 if self.monitor_stop_event.wait(5):  # Sleep before retrying on error
                     break
 
-        logger.info("Monitor thread stopped gracefully")
+        logger.info("Monitor thread stopped")
 
 
 
