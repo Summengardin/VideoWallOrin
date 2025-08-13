@@ -63,6 +63,13 @@ PYTHONPATH=$(pwd) pytest
 
 - Configuration files are found in `VisionController/config/`
 
+### Fonts
+Default font for text: `Noto Serif Bold`
+
+For symbols use either of:
+- `MaterialSymbolsOutlined-Medium`
+- `MaterialSymbolsSharp-Medium`
+- `MaterialSymbolsRounded-Medium`
 
 ## Handover Notes
 

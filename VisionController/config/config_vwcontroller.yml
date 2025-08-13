@@ -1,7 +1,8 @@
 general:
   visca_port: 1000
   enable_aravis: false
-
+  text_default_font: "Noto Serif Bold"
+  symnbol_default_font: "MaterialSymbolsOutlined-Medium"
 
 camera_providers:
   Axis:
