@@ -270,17 +270,19 @@ class PipelineManager:
         # self.nvinfer = Gst.ElementFactory.make("nvinfer", "inference")        
         self.tiler = Gst.ElementFactory.make("nvmultistreamtiler", "tiler")
         self.nvosd = Gst.ElementFactory.make("nvdsosd", "osd")
-        self.nvconvertsink = Gst.ElementFactory.make("nvvideoconvert", "nvvid-convert-sink")
-        self.sink = Gst.ElementFactory.make("xvimagesink", "sink")
-        # self.sink = Gst.ElementFactory.make("nveglglessink", "sink")
-
+        # self.nvconvertsink = Gst.ElementFactory.make("nvvideoconvert", "nvvid-convert-sink")
+        # self.sink = Gst.ElementFactory.make("xvimagesink", "sink")
+        self.sink = Gst.ElementFactory.make("nveglglessink", "sink")
+        # self.sink = Gst.ElementFactory.make("nvdrmvideosink", "sink")
        
 
         self.elements = OrderedDict({"streammux": self.streammux, 
                          "nvmultistreamtiler": self.tiler, 
                          "nvdsosd": self.nvosd, 
-                         "nvvideoconvert": self.nvconvertsink,
-                         "xvimagesink": self.sink})
+                        #  "nvvideoconvert": self.nvconvertsink,
+                        #  "xvimagesink": self.sink})
+                         "nveglglessink": self.sink})
+                        #   "nvdrmvideosink": self.sink})
 
         # for element in self.elements:
         #     if not element:
@@ -1053,7 +1055,7 @@ class PipelineManager:
                     text_params = symbol_meta.text_params[idx % 16]
                     text_params.display_text = symbol["symbol"]
                     text_params.x_offset = symbol["x"]
-                    text_params.y_offset = symbol["y"] + self.icon_y_offsets[idx % len(self.icon_y_offsets)]
+                    text_params.y_offset = symbol["y"]
                     text_params.font_params.font_name = symbol["font_name"]
                     text_params.font_params.font_size = symbol["font_size"]
                     text_params.font_params.font_color.set(*symbol["font_color"])

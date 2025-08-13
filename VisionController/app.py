@@ -18,8 +18,8 @@ from gi.repository import Gst, GLib
 import logging
 logger = logging.getLogger(__name__)
 
-from VisionController.libs.gst.pipeline_manager_ import PipelineManager
-from VisionController.libs.mqtt.mqtt_client_ import MQTTClient
+from VisionController.libs.gst.pipeline_manager import PipelineManager
+from VisionController.libs.mqtt.mqtt_client import MQTTClient
 from VisionController.libs.mqtt.mqtt_helper import load_mqtt_topics
 from VisionController.libs.utils import index_dataclass, parse_config, find_digits_in_string
 from VisionController.libs.camera import Camera
@@ -295,6 +295,7 @@ class App():
                 for osd_key, osd_value in osd_data.items():
                     if isinstance(osd_value, str):
                         osd_value = json.loads(osd_value)
+                    
                     self.pipeline_manager.osd_managers[source_id].upsert_text_from_dict(osd_value, osd_key)
 
             except Exception as e:
@@ -622,6 +623,7 @@ class App():
     def _cb_mqtt_on_message(self, client, userdata, message):
         """Callback function for MQTT on message. Put the message in the command queue."""
         payload = message.payload.decode('utf-8')
+        # payload = message.payload.decode("unicode_escape")
         self.command_queue.put((message.topic, payload))
         # logger.debug(f"Queued:    {message.topic}: {payload}")
 
