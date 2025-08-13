@@ -92,13 +92,14 @@ class Polygon:
         return lines
     
 class Text:
-    def __init__(self, x: int, y: int, text: str, font_size: int, font_name: str, color: Tuple[float, float, float, float], bg_color: Optional[Tuple[float, float, float, float]] = None):
+    def __init__(self, x: int, y: int, text: str, alignment: str, font_name: str, font_size: int,  font_color: Tuple[float, float, float, float], bg_color: Optional[Tuple[float, float, float, float]] = None):
         self.x = x
         self.y = y
         self.text = text
-        self.font_size = font_size
+        self.alignment = alignment
         self.font_name = font_name
-        self.color = color
+        self.font_size = font_size
+        self.color = font_color
         self.bg_color = bg_color
     
     def to_dict(self) -> Dict[str, Any]:
@@ -106,6 +107,7 @@ class Text:
             "x": self.x,
             "y": self.y,
             "text": self.text,
+            "alignment": self.alignment,
             "font_size": self.font_size,
             "font_name": self.font_name,
             "font_color": self.color,
@@ -184,7 +186,7 @@ class OSDManager:
     def __del__(self):
         self.stop()
 
-    def create_triangle(self, x: int, y: int, radius: int, line_width: int, line_color: Tuple[float, float, float, float], angle: float = 0, timeout: Optional[float] = None, triangle_id: Optional[str] = None) -> int:
+    def create_triangle(self, x: int, y: int, radius: int, line_width: int, line_color: Tuple[float, float, float, float], angle: float = 0, timeout: Optional[float] = -1, triangle_id: Optional[str] = None) -> str:
         # vertices = build_triangle((x, y), radius, angle)
         if triangle_id is None:
             triangle_id = self._generate_id()
@@ -196,7 +198,7 @@ class OSDManager:
         }
         return triangle_id
 
-    def create_polygon(self, vertices: List[Tuple[int, int]], line_width: int, line_color: Tuple[float, float, float, float], timeout: Optional[float] = None, polygon_id: Optional[str] = None) -> int:
+    def create_polygon(self, vertices: List[Tuple[int, int]], line_width: int, line_color: Tuple[float, float, float, float], timeout: Optional[float] = -1, polygon_id: Optional[str] = None) -> str:
         if polygon_id is None:
             polygon_id = self._generate_id()
         self.elements[polygon_id] = {
@@ -211,12 +213,12 @@ class OSDManager:
                             x: int = 0, 
                             y: int = 0, 
                             alignment: str = "left", 
-                            font_size: int = None,
                             font_name: str = DEFAULT_FONT_NAME,
-                            color: Tuple[float, float, float, float] = None, 
+                            font_size: int = None,
+                            font_color: Tuple[float, float, float, float] = None, 
                             bg_color: Tuple[float, float, float, float] = None, 
                             timeout: Optional[float] = -1, 
-                            text_id: Optional[str] = None) -> int:
+                            text_id: Optional[str] = None) -> str:
         if text_id is None:
             text_id = self._generate_id()
         try:
@@ -225,26 +227,27 @@ class OSDManager:
             pass
         self.elements[text_id] = {
             "type": "text",
-            "object": {
-                "text": text,
-                "x": x,
-                "y": y,
-                "alignment": alignment,
-                "font_size": font_size if font_size else self.default_font_size,
-                "font_name": font_name if font_name else self.default_font_name,
-                "font_color": color if color else self.default_font_color,
-                "bg_color": bg_color if bg_color else self.default_bg_color,
-            },
+            "object": Text(
+                x,
+                y,
+                text,
+                alignment,
+                font_name if font_name != "" else self.default_font_name,
+                font_size,
+                font_color,
+                bg_color
+            ),
             "timeout": time.time() + timeout if timeout > 0 else -1,
             "visible": True
         }
         return text_id
+ 
     
     def create_symbol(self, symbol: str,
                       x: int = 0,
                       y: int = 0,
-                      font_size: int = 40,
                       font_name: str = DEFAULT_SYMBOL_FONT_NAME,
+                      font_size: int = 40,
                       color: Tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0),
                       bg_color: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.6),
                       timeout: Optional[float] = -1,
@@ -295,8 +298,9 @@ class OSDManager:
                     x: Optional[int] = None,
                     y: Optional[int] = None,
                     alignment: Optional[str] = None,
+                    font_name: Optional[str] = None,
                     font_size: Optional[int] = None,
-                    color: Optional[Tuple[float, float, float, float]] = None,
+                    font_color: Optional[Tuple[float, float, float, float]] = None,
                     bg_color: Optional[Tuple[float, float, float, float]] = None,
                     timeout: Optional[float] = None) -> str:
         """ Update or create a text element with the given parameters. """
@@ -304,28 +308,30 @@ class OSDManager:
         
         if text_id is not None and text_id in self.elements and self.elements[text_id]["type"] == "text":
             change = False
-            if text is not None and text != self.elements[text_id]["object"]["text"]:
-                self.elements[text_id]["object"]["text"] = text
+            if text is not None and text != self.elements[text_id]["object"].text:
+                self.elements[text_id]["object"].text = text
                 change = True
             if x is not None:
-                self.elements[text_id]["object"]["x"] = x
+                self.elements[text_id]["object"].x = x
             if y is not None:
-                self.elements[text_id]["object"]["y"] = y
+                self.elements[text_id]["object"].y = y
             if alignment is not None:
-                self.elements[text_id]["object"]["alignment"] = alignment
+                self.elements[text_id]["object"].alignment = alignment
+            if font_name is not None:
+                self.elements[text_id]["object"].font_name = font_name if font_name != "" else self.default_font_name
             if font_size is not None:
-                self.elements[text_id]["object"]["font_size"] = font_size
-            if color is not None:
-                self.elements[text_id]["object"]["font_color"] = color
+                self.elements[text_id]["object"].font_size = font_size
+            if font_color is not None:
+                self.elements[text_id]["object"].font_color = font_color
             if bg_color is not None:
-                self.elements[text_id]["object"]["bg_color"] = bg_color
+                self.elements[text_id]["object"].bg_color = bg_color
             if timeout is not None and change:
                 self.elements[text_id]["timeout"] = time.time() + timeout if timeout > 0 else -1
                 self.elements[text_id]["visible"] = True
             
             return text_id
 
-        return self.create_text(text, x, y, alignment, font_size, color, bg_color, timeout, text_id)
+        return self.create_text(text, x, y, alignment, font_name, font_size, font_color, bg_color, timeout, text_id)
                     
 
     def upsert_triangle(self,
@@ -337,7 +343,7 @@ class OSDManager:
                         line_color: Optional[Tuple[float,
                                                    float, float, float]] = None,
                         angle: Optional[float] = None,
-                        timeout: Optional[float] = None) -> str:
+                        timeout: Optional[float] = -1) -> str:
         """ Update or create a triangle with the given parameters. """
         logger.debug(
             f"upsert_triangle: {triangle_id}, {x}, {y}, {radius}, {line_width}, {line_color}, {angle}, {timeout}")
@@ -381,7 +387,7 @@ class OSDManager:
         if symbol_id is not None and symbol_id in self.elements and self.elements[symbol_id]["type"] == "symbol":
             if symbol is not None:
                 try:
-                    self.elements[symbol_id]["object"].text = material_symbols[symbol]
+                    self.elements[symbol_id]["object"].symbol = material_symbols[symbol]
                 except KeyError:
                     logger.error(f"Symbol '{symbol}' not found in material_symbols.")
                     return ""
@@ -402,6 +408,8 @@ class OSDManager:
                 self.elements[symbol_id]["visible"] = True
 
             return symbol_id
+        
+        return self.create_symbol(symbol, x, y, font_name, font_size, color, bg_color, timeout, symbol_id)
 
     def _extract_base_key(self, key: str) -> str:
         """Extract the base key from a key that may have prefixes/suffixes."""
@@ -410,11 +418,6 @@ class OSDManager:
         if key.endswith('.Value'):
             key = key[:-6]
         return key
-    
-    # def _validate_dict(in_dict):
-    #     new_dict = {}
-    #     try:
-    #         new_dict["TextProp"] = in_dict.get("TextProp", '')
         
 
     def upsert_text_from_dict(self, text_dict: Dict[str, Any], text_id: Optional[str] = None) -> str:
@@ -424,11 +427,18 @@ class OSDManager:
         # Create a normalized dictionary with base keys
         normalized_dict = {}
 
-        # validated = self._validate_dict(text_dict)
-
         for key, value in text_dict.items():
             base_key = self._extract_base_key(key)
             normalized_dict[base_key] = value
+        
+        if normalized_dict.get("Text") is not None and isinstance(normalized_dict["Text"], str) and normalized_dict["Text"].startswith("icon:"):
+            # If the text starts with "icon:", replace it with the corresponding material symbol
+            # This assumes that the icon name is the part after "icon:"
+            normalized_dict["Symbol"] = normalized_dict["Text"][5:]
+            return self.upsert_symbol_from_dict(
+                symbol_dict=normalized_dict,
+                symbol_id=text_id
+            )
 
         if text_id is not None and text_id in self.elements and self.elements[text_id]["type"] == "text":
             return self.upsert_text(
@@ -437,8 +447,9 @@ class OSDManager:
                 x=int(normalized_dict.get("PosX", 0)),
                 y=int(normalized_dict.get("PosY", 0)),
                 alignment=normalized_dict.get("Alignment", "left"),
+                font_name=normalized_dict.get("FontName", DEFAULT_FONT_NAME),
                 font_size=int(normalized_dict.get("FontSize", 18)),
-                color=tuple(map(float, normalized_dict.get("FontColor", "1.0,1.0,1.0,1.0").split(","))),
+                font_color=tuple(map(float, normalized_dict.get("FontColor", "1.0,1.0,1.0,1.0").split(","))),
                 bg_color=tuple(map(float, normalized_dict.get("BGColor", "0.0,0.0,0.0,0.6").split(","))),
                 timeout=float(normalized_dict.get("Timeout", 0))
             )
@@ -448,8 +459,9 @@ class OSDManager:
             x=int(normalized_dict.get("PosX", 0)),
             y=int(normalized_dict.get("PosY", 0)),
             alignment=normalized_dict.get("Alignment", "left"),
+            font_name=normalized_dict.get("FontName", DEFAULT_FONT_NAME),
             font_size=int(normalized_dict.get("FontSize", 18)),
-            color=tuple(map(float, normalized_dict.get("FontColor", "1.0,1.0,1.0,1.0").split(","))),
+            font_color=tuple(map(float, normalized_dict.get("FontColor", "1.0,1.0,1.0,1.0").split(","))),
             bg_color=tuple(map(float, normalized_dict.get("BGColor", "0.0,0.0,0.0,0.6").split(","))),
             timeout=float(normalized_dict.get("Timeout", 0)),
             text_id=text_id
@@ -535,7 +547,7 @@ class OSDManager:
         return [line.to_dict_ints() for line in lines]
 
     def get_all_texts_as_dicts(self) -> List[Dict]:
-        return [element["object"] for element in self.elements.values() if (element["type"] == "text" and element["visible"] == True)]
+        return [element["object"].to_dict() for element in self.elements.values() if (element["type"] == "text" and element["visible"] == True)]
 
     def get_all_symbols_as_dicts(self) -> List[Dict]:
         return [element["object"].to_dict() for element in self.elements.values() if (element["type"] == "symbol" and element["visible"] == True)]
