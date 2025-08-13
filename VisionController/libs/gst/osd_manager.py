@@ -7,6 +7,7 @@ import math
 from itertools import pairwise
 
 
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,8 @@ class OSDManager:
         self.elements[triangle_id] = {
             "type": "triangle",
             "object": Triangle(x, y, radius, line_width, line_color, angle),
-            "timeout": time.time() + timeout if timeout > 0 else -1
+            "timeout": time.time() + timeout if timeout > 0 else -1,
+            "visible": True
         }
         return triangle_id
 
@@ -200,7 +202,8 @@ class OSDManager:
         self.elements[polygon_id] = {
             "type": "polygon",
             "object": Polygon(vertices, line_width, line_color),
-            "timeout": time.time() + timeout if timeout > 0 else -1
+            "timeout": time.time() + timeout if timeout > 0 else -1,
+            "visible": True
         }
         return polygon_id
 
@@ -231,9 +234,9 @@ class OSDManager:
                 "font_name": font_name if font_name else self.default_font_name,
                 "font_color": color if color else self.default_font_color,
                 "bg_color": bg_color if bg_color else self.default_bg_color,
-                "font_name": "Noto Serif Bold"
             },
-            "timeout": time.time() + timeout if timeout > 0 else -1
+            "timeout": time.time() + timeout if timeout > 0 else -1,
+            "visible": True
         }
         return text_id
     
@@ -286,6 +289,45 @@ class OSDManager:
         if text_id in self.elements and self.elements[text_id]["type"] == "text":
             self.elements[text_id]["object"]["text"] = text
 
+    def upsert_text(self, 
+                    text_id: Optional[str] = None,
+                    text: Optional[str] = None,
+                    x: Optional[int] = None,
+                    y: Optional[int] = None,
+                    alignment: Optional[str] = None,
+                    font_size: Optional[int] = None,
+                    color: Optional[Tuple[float, float, float, float]] = None,
+                    bg_color: Optional[Tuple[float, float, float, float]] = None,
+                    timeout: Optional[float] = None) -> str:
+        """ Update or create a text element with the given parameters. """
+        # logger.debug(f"upsert_text: {text_id}, {text}, {x}, {y}, {alignment}, {font_size}, {color}, {bg_color}, {timeout}")
+        
+        if text_id is not None and text_id in self.elements and self.elements[text_id]["type"] == "text":
+            change = False
+            if text is not None and text != self.elements[text_id]["object"]["text"]:
+                self.elements[text_id]["object"]["text"] = text
+                change = True
+            if x is not None:
+                self.elements[text_id]["object"]["x"] = x
+            if y is not None:
+                self.elements[text_id]["object"]["y"] = y
+            if alignment is not None:
+                self.elements[text_id]["object"]["alignment"] = alignment
+            if font_size is not None:
+                self.elements[text_id]["object"]["font_size"] = font_size
+            if color is not None:
+                self.elements[text_id]["object"]["font_color"] = color
+            if bg_color is not None:
+                self.elements[text_id]["object"]["bg_color"] = bg_color
+            if timeout is not None and change:
+                self.elements[text_id]["timeout"] = time.time() + timeout if timeout > 0 else -1
+                self.elements[text_id]["visible"] = True
+            
+            return text_id
+
+        return self.create_text(text, x, y, alignment, font_size, color, bg_color, timeout, text_id)
+                    
+
     def upsert_triangle(self,
                         triangle_id: Optional[str] = None,
                         x: Optional[int] = None,
@@ -314,6 +356,7 @@ class OSDManager:
                 self.elements[triangle_id]["object"].angle = angle
             if timeout is not None:
                 self.elements[triangle_id]["timeout"] = time.time() + timeout if timeout > 0 else -1
+                self.elements[triangle_id]["visible"] = True
 
             self.elements[triangle_id]["object"].update()
 
@@ -360,32 +403,55 @@ class OSDManager:
 
             return symbol_id
 
+    def _extract_base_key(self, key: str) -> str:
+        """Extract the base key from a key that may have prefixes/suffixes."""
+        # Remove any leading dots and .Value suffix
+        key = key.strip('.')
+        if key.endswith('.Value'):
+            key = key[:-6]
+        return key
+    
+    # def _validate_dict(in_dict):
+    #     new_dict = {}
+    #     try:
+    #         new_dict["TextProp"] = in_dict.get("TextProp", '')
+        
+
     def upsert_text_from_dict(self, text_dict: Dict[str, Any], text_id: Optional[str] = None) -> str:
         """ Add or update a text element with the given parameters. """
-        logger.debug(f"upsert_text_from_dict: {text_dict}, {text_id}")
+        # logger.debug(f"upsert_text_from_dict: {text_dict}, {text_id}")
+
+        # Create a normalized dictionary with base keys
+        normalized_dict = {}
+
+        # validated = self._validate_dict(text_dict)
+
+        for key, value in text_dict.items():
+            base_key = self._extract_base_key(key)
+            normalized_dict[base_key] = value
 
         if text_id is not None and text_id in self.elements and self.elements[text_id]["type"] == "text":
             return self.upsert_text(
-                text=text_dict.get("text", ""),
+                text=normalized_dict.get("Text", ""),
                 text_id=text_id,
-                x=int(text_dict.get("pos_x", 0)),
-                y=int(text_dict.get("pos_y", 0)),
-                alignment=text_dict.get("alignment", "left"),
-                font_size=int(text_dict.get("font_size", 18)),
-                color=tuple(map(float, text_dict.get("font_color", "1.0,1.0,1.0,1.0").split(","))),
-                bg_color=tuple(map(float, text_dict.get("bg_color", "0.0,0.0,0.0,0.6").split(","))),
-                timeout=float(text_dict.get("timeout", None))
+                x=int(normalized_dict.get("PosX", 0)),
+                y=int(normalized_dict.get("PosY", 0)),
+                alignment=normalized_dict.get("Alignment", "left"),
+                font_size=int(normalized_dict.get("FontSize", 18)),
+                color=tuple(map(float, normalized_dict.get("FontColor", "1.0,1.0,1.0,1.0").split(","))),
+                bg_color=tuple(map(float, normalized_dict.get("BGColor", "0.0,0.0,0.0,0.6").split(","))),
+                timeout=float(normalized_dict.get("Timeout", 0))
             )
 
         return self.create_text(
-            text=text_dict.get("text", ""),
-            x=int(text_dict.get("pos_x", 0)),
-            y=int(text_dict.get("pos_y", 0)),
-            alignment=text_dict.get("alignment", "left"),
-            font_size=int(text_dict.get("font_size", 18)),
-            color=tuple(map(float, text_dict.get("font_color", "1.0,1.0,1.0,1.0").split(","))),
-            bg_color=tuple(map(float, text_dict.get("bg_color", "0.0,0.0,0.0,0.6").split(","))),
-            timeout=float(text_dict.get("timeout", None)),
+            text=normalized_dict.get("Text", ""),
+            x=int(normalized_dict.get("PosX", 0)),
+            y=int(normalized_dict.get("PosY", 0)),
+            alignment=normalized_dict.get("Alignment", "left"),
+            font_size=int(normalized_dict.get("FontSize", 18)),
+            color=tuple(map(float, normalized_dict.get("FontColor", "1.0,1.0,1.0,1.0").split(","))),
+            bg_color=tuple(map(float, normalized_dict.get("BGColor", "0.0,0.0,0.0,0.6").split(","))),
+            timeout=float(normalized_dict.get("Timeout", 0)),
             text_id=text_id
         )
     
@@ -445,14 +511,21 @@ class OSDManager:
             timeout=float(normalized_dict.get("Timeout", 0)),
             symbol_id=symbol_id
         )
+    
+    
 
     def remove_element(self, element_id: str):
         if element_id in self.elements:
             del self.elements[element_id]
 
     def _cleanup_expired_elements(self, current_time: float):
-        self.elements = {element_id: element for element_id, element in self.elements.items(
-        ) if element["timeout"] is None or element["timeout"] < 0 or element["timeout"] > current_time}
+        for element in self.elements.values():
+            timeout = element.get("timeout")
+            if timeout is not None and timeout >= 0 and timeout <= current_time:
+                element["visible"] = False
+
+        # self.elements = {element_id: element for element_id, element in self.elements.items(
+        # ) if element["timeout"] is None or element["timeout"] < 0 or element["timeout"] > current_time}
 
     def get_all_lines_as_dicts(self) -> List[Dict]:
         lines = []
@@ -461,8 +534,8 @@ class OSDManager:
                 lines.extend(element["object"].to_lines())
         return [line.to_dict_ints() for line in lines]
 
-    def get_all_texts(self) -> List[Dict]:
-        return [element["object"] for element in self.elements.values() if element["type"] == "text"]
+    def get_all_texts_as_dicts(self) -> List[Dict]:
+        return [element["object"] for element in self.elements.values() if (element["type"] == "text" and element["visible"] == True)]
 
     def get_all_symbols_as_dicts(self) -> List[Dict]:
         return [element["object"].to_dict() for element in self.elements.values() if (element["type"] == "symbol" and element["visible"] == True)]
