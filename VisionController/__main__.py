@@ -21,12 +21,12 @@ else:
     logging.basicConfig(stream=sys.stdout, format='%(asctime)s [%(levelname)s] %(name)s:  %(message)s')
 
 try:
-    numeric_level = getattr(logging, args.log_level)
+    log_level = getattr(logging, args.log_level)
 except AttributeError:
     print(f"Invalid log level: {args.log_level}, using DEBUG")
-    numeric_level = logging.DEBUG
+    log_level = logging.DEBUG
 
-logging.getLogger().setLevel(numeric_level)
+logging.getLogger().setLevel(log_level)
 
 # Global shutdown event
 shutdown_event = threading.Event()
