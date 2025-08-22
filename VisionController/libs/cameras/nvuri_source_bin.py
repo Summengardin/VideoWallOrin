@@ -32,7 +32,7 @@ def create_source_bin(index: int, camera = None) -> Gst.Bin:
     nvurisrcbin.set_property("latency", 0)  # Jitterbuffer size in milliseconds
     nvurisrcbin.set_property("low-latency-mode", 1)
     nvurisrcbin.set_property("drop-frame-interval", 0)
-    nvurisrcbin.set_property("num-extra-surfaces", 0) 
+    nvurisrcbin.set_property("num-extra-surfaces", 6) 
     nvurisrcbin.set_property("file-loop", 1)  # Loop the file
     nvurisrcbin.set_property("rtsp-reconnect-interval", 0)  # Timeout in seconds to wait before reconnection
     nvurisrcbin.set_property("rtsp-reconnect-attempts", 0)  # Set rtsp reconnect attempt value
