@@ -340,8 +340,9 @@ class App():
                 logger.error(f"Wrong type provided as zoom speed (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
-                control = self.pipeline_manager.sources[source_id].control
-                control.continuous_zoom(zoom_speed)
+                control = self.pipeline_manager.sources[source_id].camera.control
+                if control is not None:
+                    control.continuous_zoom(zoom_speed)
             except Exception as e:
                 logger.error(f"Could not initiate continuous zoom for Source {source_id}. \nError: {e}")
 
@@ -353,8 +354,9 @@ class App():
                 logger.error(f"Wrong type provided as pan speed (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
-                control = self.pipeline_manager.sources[source_id].control
-                control.continuous_pan(pan_speed)
+                control = self.pipeline_manager.sources[source_id].camera.control
+                if control is not None:
+                    control.continuous_pan(pan_speed)
             except Exception as e:
                 logger.error(f"Could not initiate continuous pan for Source {source_id}. \nError: {e}")
     
@@ -365,8 +367,9 @@ class App():
                 logger.error(f"Wrong type provided as tilt speed (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
-                control = self.pipeline_manager.sources[source_id].control
-                control.continuous_tilt(tilt_speed)
+                control = self.pipeline_manager.sources[source_id].camera.control
+                if control is not None:
+                    control.continuous_tilt(tilt_speed)
             except Exception as e:
                 logger.error(f"Could not initiate continuous tilt for Source {source_id}. \nError: {e}")
 
@@ -378,8 +381,9 @@ class App():
                 logger.error(f"Wrong type provided as brightness (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
-                control = self.pipeline_manager.sources[source_id].control
-                control.set_brightness(brightness)
+                control = self.pipeline_manager.sources[source_id].camera.control
+                if control is not None:
+                    control.set_brightness(brightness)
             except Exception as e:
                 logger.error(f"Could not set brightness for Source {source_id}. \nError: {e}")
 
