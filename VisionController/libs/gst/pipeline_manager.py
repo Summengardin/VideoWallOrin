@@ -242,18 +242,21 @@ class PipelineManager:
         # self.nvinfer = Gst.ElementFactory.make("nvinfer", "inference")        
         self.tiler = Gst.ElementFactory.make("nvmultistreamtiler", "tiler")
         self.nvosd = Gst.ElementFactory.make("nvdsosd", "osd")
-        # self.nvconvertsink = Gst.ElementFactory.make("nvvideoconvert", "nvvid-convert-sink")
-        # self.sink = Gst.ElementFactory.make("xvimagesink", "sink")
-        self.sink = Gst.ElementFactory.make("nveglglessink", "sink")
+        self.sink_queue = Gst.ElementFactory.make("queue", "sink-queue")
+        self.nvconvertsink = Gst.ElementFactory.make("nvvideoconvert", "nvvid-convert-sink")
+        self.sink = Gst.ElementFactory.make("xvimagesink", "sink")
+        
+        # self.sink = Gst.ElementFactory.make("nveglglessink", "sink")
         # self.sink = Gst.ElementFactory.make("nvdrmvideosink", "sink")
        
 
         self.elements = OrderedDict({"streammux": self.streammux, 
                          "nvmultistreamtiler": self.tiler, 
                          "nvdsosd": self.nvosd, 
-                        #  "nvvideoconvert": self.nvconvertsink,
-                        #  "xvimagesink": self.sink})
-                         "nveglglessink": self.sink})
+                            "sink_queue": self.sink_queue,
+                         "nvvideoconvert": self.nvconvertsink,
+                         "xvimagesink": self.sink})
+                        #  "nveglglessink": self.sink})
                         #   "nvdrmvideosink": self.sink})
 
         # for element in self.elements:
@@ -289,6 +292,11 @@ class PipelineManager:
         self.tiler.set_property("height", self.height)
         self.tiler.set_property("nvbuf-memory-type", 0)
         self.tiler.set_property("gpu-id", 0)
+        
+        self.sink_queue.set_property("leaky", 2)  # Dropping old buffers
+        self.sink_queue.set_property("max-size-buffers", 1)
+        self.sink_queue.set_property("max-size-bytes", 0)
+        self.sink_queue.set_property("max-size-time", 0)
 
         self.sink.set_property("sync", False)
 
