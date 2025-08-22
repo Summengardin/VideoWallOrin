@@ -22,13 +22,12 @@ import threading
 import logging
 logger = logging.getLogger(__name__)
 
-from VisionController.libs.camera import Camera
 # from VisionController.libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_videotestsrc_source_bin
 from VisionController.libs.cameras.placeholder_source_bin import create_source_bin as create_placeholder_source_bin
 from VisionController.libs.cameras.nvuri_source_bin import create_source_bin as create_nvuri_source_bin
 from VisionController.libs.utils import index_dataclass, scale, clamp, calculate_text_offset
 from VisionController.libs.material_symbols import material_symbols
-from VisionController.libs.vw_types import Source, SourceType
+from VisionController.libs.vw_types import Source, SourceType, Camera
 from VisionController.libs.gst.osd_manager import OSDManager
 
 if Gst.is_initialized() == False:
