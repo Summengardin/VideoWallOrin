@@ -120,3 +120,74 @@ def nvurisrcbin_pad_added(srcbin, pad, data):
         logger.error("Failed to link nvurisrcbin pad to queue sink")
         return
     logger.debug(f"Pad {pad.get_name()} linked to queue sink pad.")
+
+
+
+if __name__ == "__main__":
+    # Example usage
+    from gi.repository import Gst, GLib
+
+    Gst.init(None)
+
+    camera = type('Camera', (object,), {'uri': 'rtsp://root:root@10.1.3.80/axis-media/media.amp?streamprofile=stream-1'})
+
+    bin = create_source_bin(0, camera)
+    if bin:
+        print("Source bin created successfully.")
+    else:
+        print("Failed to create source bin.")
+    Gst.debug_bin_to_dot_file(bin, Gst.DebugGraphDetails.ALL, "test_source_bin")
+    print("Debug graph written to 'test_source_bin.dot'.")
+
+    pipeline = Gst.Pipeline.new("test-pipeline")
+    if not pipeline:
+        print("Failed to create pipeline")
+    else:
+
+        pipeline.add(bin)
+
+        conv = Gst.ElementFactory.make("nvvideoconvert", "conv")
+        sink = Gst.ElementFactory.make("nveglglessink", "sink")
+        if not sink:
+            sink = Gst.ElementFactory.make("autovideosink", "sink")
+
+        sink.set_property("sync", False)
+
+        if not conv or not sink:
+            print("Failed to create elements")
+        else:
+            pipeline.add(conv)
+            pipeline.add(sink)
+
+            # Try linking the source bin to the converter via element linking; fallback to pad linking.
+            if not bin.link(conv):
+                src_pad = bin.get_static_pad("src")
+                sink_pad = conv.get_static_pad("sink")
+                if not src_pad or not sink_pad or src_pad.link(sink_pad) != Gst.PadLinkReturn.OK:
+                    print("Failed to link source bin to converter")
+            if not conv.link(sink):
+                print("Failed to link converter to sink")
+
+            loop = GLib.MainLoop()
+            bus = pipeline.get_bus()
+            bus.add_signal_watch()
+
+            def on_message(bus, message):
+                t = message.type
+                if t == Gst.MessageType.EOS:
+                    print("End-Of-Stream")
+                    loop.quit()
+                elif t == Gst.MessageType.ERROR:
+                    err, dbg = message.parse_error()
+                    print(f"Error: {err}: {dbg}")
+                    loop.quit()
+
+            bus.connect("message", on_message)
+
+            pipeline.set_state(Gst.State.PLAYING)
+            try:
+                loop.run()
+            except KeyboardInterrupt:
+                pass
+            pipeline.set_state(Gst.State.NULL)
+
