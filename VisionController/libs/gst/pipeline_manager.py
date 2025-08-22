@@ -9,7 +9,7 @@ import gi.overrides
 from gi.repository import Gst, GLib#, Aravis
 from itertools import pairwise
 from collections import OrderedDict
-from typing import Tuple
+from typing import Tuple, Optional, Any
 from dataclasses import dataclass 
 from enum import Enum
 from datetime import datetime
@@ -340,11 +340,8 @@ class PipelineManager:
             self.pipeline.set_state(Gst.State.PAUSED)
         
         bin = self.sources[source_id].bin
-        if self.sources[source_id].ip in self.active_source_ips:
-            logger.debug(f"Removing source {source_id} from active source IPs")
-            self.active_source_ips.remove(self.sources[source_id].ip)
 
-        logger.debug(f"Setting source {source_id} to NULL")
+        logger.debug(f"Setting source {source_id} to state: NULL")
         state_return = bin.set_state(Gst.State.NULL)
 
         if state_return == Gst.StateChangeReturn.FAILURE:
@@ -409,7 +406,7 @@ class PipelineManager:
             True if added & linked; False on failure.
         """
         with self.source_lock:
-            logger.debug(f"Add Source: id={source_id}, camera={getattr(camera, 'id', None)}")
+            logger.debug(f"Add Source: id={source_id}, camera={camera.id}")
 
             if self.pipeline is None or self.streammux is None:
                 logger.error("Pipeline or streammux not initialized.")
@@ -428,7 +425,7 @@ class PipelineManager:
 
             # Remove current bin (if any)
             current = self.sources[source_id]
-            if getattr(current, "bin", None) is not None:
+            if current.bin is not None:
                 if not self._remove_source_internal(source_id):
                     logger.error(f"Failed to remove existing source at slot {source_id}")
                     return False
@@ -436,13 +433,12 @@ class PipelineManager:
             # Update source slot metadata
             current.bin = bin_obj
             current.id = source_id
-            current.active = False
             current.eos = False
             if camera is not None:
                 current.camera = camera
-                current.type = getattr(camera, "type", "Unknown")
-                current.ip = getattr(camera, "ip", None)
-                current.name = getattr(camera, "ip", f"Source{source_id}")
+                current.type = camera.type or "Unknown"
+                current.ip = camera.ip
+                current.name = camera.name or f"Source{source_id}"
             else:
                 current.type = "Placeholder"
                 current.name = f"Placeholder{source_id}"
@@ -474,7 +470,7 @@ class PipelineManager:
                 return False
 
             # Bus wiring for non-placeholder sources
-            if getattr(current, "type", "") not in {"Placeholder", "Test"}:
+            if current.type not in {"Placeholder", "Test"}:
                 bus = self.pipeline.get_bus()
                 if bus:
                     bus.add_signal_watch()
@@ -496,10 +492,9 @@ class PipelineManager:
 
             # Book-keeping
             self.num_sources += 1
-            ip = getattr(current, "ip", None)
-            if ip:
-                self.active_source_ips.append(ip)
+            current.active = True
 
+            self.sources[source_id] = current
             logger.debug(f"Source {source_id} added and linked")
 
             Gst.debug_bin_to_dot_file(self.pipeline, Gst.DebugGraphDetails.ALL , "pipeline-after-add")

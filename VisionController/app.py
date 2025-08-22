@@ -9,6 +9,7 @@ import multiprocessing as mp
 import sys
 import importlib.util
 from urllib.parse import urlparse
+from typing import Optional
 
 import gi
 gi.require_version('Gst', '1.0')
@@ -189,13 +190,13 @@ class App():
             logger.error(f"Invalid source_id {source_id}; no such source slot")
             return
 
-        old_label = getattr(src_slot, "cam_id", None)
+        old_label = src_slot.name
         if old_label == source_label:
             logger.debug(f"Source {source_id} already bound to '{source_label}'; no change")
             return
 
         logger.debug(f"Source {source_id}: {old_label} → {source_label}")
-        setattr(src_slot, "cam_id", source_label)
+        src_slot.name = source_label
 
         self.desired_sources[source_id] = source_label
 
@@ -208,7 +209,7 @@ class App():
                 logger.error("No placeholder camera 'test' configured; aborting")
                 return
         else:
-            self.camera_uris[source_label] = getattr(cam, "uri", "")
+            self.camera_uris[source_label] = cam.uri
 
             is_online = self.camera_status.get(cam.id, False)
             use_cam = cam if is_online else self.cameras.get("test", cam)
@@ -219,11 +220,11 @@ class App():
         logger.debug(f"Adding source {source_id} with camera {use_cam.id} ({use_cam.type})")
 
         # Update slot metadata (nice to have)
-        setattr(src_slot, "camera", use_cam)
-        setattr(src_slot, "type", getattr(use_cam, "type", "Placeholder"))
-        setattr(src_slot, "name", getattr(use_cam, "ip", f"Source{source_id}"))
+        src_slot.camera = use_cam
+        src_slot.type = use_cam.type or "Placeholder"
+        src_slot.ip = use_cam.ip or f"Source{source_id}"
 
-        logger.info(f"Source {source_id} now set to camera '{getattr(use_cam, 'id', '?')}' (type={getattr(use_cam, 'type', '?')})")
+        logger.info(f"Source {source_id} now set to camera '{use_cam.id}' (type={use_cam.type})")
 
     def _handle_vision_controllers_message(self, topic_split, payload):
         command = topic_split[3]
@@ -265,7 +266,6 @@ class App():
                 logger.error(f"Could not load OSD data: {e}")
                 return
 
-
         elif subcommand == "ZoomSpeed":
             try:
                 zoom_speed = float(payload)
@@ -278,7 +278,6 @@ class App():
                     control.continuous_zoom(zoom_speed)
             except Exception as e:
                 logger.error(f"Could not initiate continuous zoom for Source {source_id}. \nError: {e}")
-
 
         elif subcommand == "PanSpeed":
             try:
@@ -306,7 +305,6 @@ class App():
             except Exception as e:
                 logger.error(f"Could not initiate continuous tilt for Source {source_id}. \nError: {e}")
 
-
         elif subcommand == "Brightness":
             try:
                 brightness = float(payload)
@@ -319,9 +317,6 @@ class App():
                     control.set_brightness(brightness)
             except Exception as e:
                 logger.error(f"Could not set brightness for Source {source_id}. \nError: {e}")
-
-
-
         else:
             logger.warning(f"Tile-subcommand \"{subcommand}\" not assigned any logic yet")
 
@@ -645,7 +640,7 @@ class App():
                     elif desired_cam_id in {"Test", "Placeholder"}:
                         continue
                     
-                    elif getattr(desired_cam, "uri", None) is None:
+                    elif desired_cam.uri is None:
 
                         if counter == 0:
                             logger.error(f"No URI for {desired_cam_id}")
@@ -662,28 +657,28 @@ class App():
 
 
                     # If desired camera is online and the slot is already active for that camera, skip
-                    if self.camera_status.get(desired_cam_id, False) and getattr(source, "active", False):
-                        if getattr(source, "cam_id", None) == desired_cam_id and source.type not in {"Placeholder", "Test"}:
+                    if self.camera_status.get(desired_cam_id, False) and source.active:
+                        if source.cam_id == desired_cam_id and source.type not in {"Placeholder", "Test"}:
                             continue  # healthy and already on desired camera
 
                     # Decide what to feed now
                     cam_is_online = self.camera_status.get(desired_cam_id, False)
                     if cam_is_online:
-                        logger.info(f"Camera {getattr(desired_cam, 'ip', desired_cam.id)} is online; attempting (re)connect")
+                        logger.info(f"Camera {desired_cam.ip or desired_cam.id} is online; attempting (re)connect")
                         ok = self._add_camera_source(source_id, desired_cam)
                         if ok:
-                            logger.info(f"Slot {source_id} is now connected to {getattr(desired_cam, 'ip', desired_cam.id)}")
+                            logger.info(f"Slot {source_id} is now connected to {desired_cam.ip or desired_cam.id}")
                             source.cam_id = desired_cam_id
                             source.camera = desired_cam
                             source.type = desired_cam.type
-                            source.name = getattr(desired_cam, "ip", f"Source{source_id}")
+                            source.name = desired_cam.ip or f"Source{source_id}"
                             source.active = True
                         else:
-                            logger.error(f"Failed to connect slot {source_id} to {getattr(desired_cam, 'ip', desired_cam.id)}; falling back to placeholder")
+                            logger.error(f"Failed to connect slot {source_id} to {desired_cam.ip or desired_cam.id}; falling back to placeholder")
                             self._add_placeholder(source_id)
                     else:
                         # Camera offline: ensure slot shows placeholder (but don’t thrash if already placeholder/test)
-                        if source.type not in {"Placeholder", "Test"} or getattr(source, "active", True):
+                        if source.type not in {"Placeholder", "Test"} or source.active:
                             logger.debug(f"Camera {desired_cam_id} offline; swapping slot {source_id} to placeholder")
                             self._add_placeholder(source_id)
                             source.type = "Placeholder"
