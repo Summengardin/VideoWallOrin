@@ -7,13 +7,18 @@ sys.path.append('/app/VisionController/libs')
 
 from vapix_python.VapixAPI import VapixAPI
 from utils import clamp, scale
+from VisionController.libs.cameras.base_camera_control import CameraControl
 
 logger = logging.getLogger(__name__)
 
-class CameraControl:
+class VapixControl(CameraControl):
     def __init__(self, camera, username='root', password='root', port=80):
         logger.debug(f"Initializing CameraControl for {camera.ip}")
-        self.vapix_control = VapixAPI(camera.ip, username, password, port)
+        try:
+            self.vapix_control = VapixAPI(camera.ip, username, password, port)
+        except Exception as e:
+            logger.error(f"Failed to initialize VapixAPI for {camera.ip}: {e}")
+            return 
         self.ptz = self.vapix_control.ptz
         self.optics = self.vapix_control.optics
         # self.imaging = self.vapix_control.imaging
