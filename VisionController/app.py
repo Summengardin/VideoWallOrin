@@ -22,9 +22,8 @@ from VisionController.libs.gst.pipeline_manager import PipelineManager
 from VisionController.libs.mqtt.mqtt_client import MQTTClient
 from VisionController.libs.mqtt.mqtt_helper import load_mqtt_topics
 from VisionController.libs.utils import index_dataclass, parse_config, find_digits_in_string
-from VisionController.libs.camera import Camera
-from VisionController.libs.vw_types import Source, SourceType
-
+from VisionController.libs.vw_types import Source, SourceType, Camera
+from VisionController.libs.factories import CameraFactory
 
 if not Gst.is_initialized():
     Gst.init(None)
@@ -39,9 +38,8 @@ class App():
         self.mqtt_config = self.config['mqtt']
         self.pipeline_config = self.config['pipeline']
         self.general_config = self.config['general']
-        self.camera_providers = self.config['camera_providers']
-
-        logger.debug(f"Camera providers: {self.camera_providers}")  
+        self.camera_factory = CameraFactory()
+        self.camera_factory.load_providers_from_config_file(self.config_file)
 
         self.command_queue = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=4)
@@ -52,40 +50,32 @@ class App():
 
 
         self.pipeline_manager = PipelineManager(self.pipeline_config)
-
-        # Store camera status using multiprocessing manager
-        self.manager = mp.Manager()
-        self.camera_status = self.manager.dict()
-        self.camera_uris = self.manager.dict()
+      
 
         self.cameras = {}
-        self.cameras['test'] = Camera(id = "Test", ip="test", type="Test", width=1920, height=1080, framerate=60)
-        self.cameras['test'].provider = self.camera_providers.get(self.cameras['test'].type, None)
-        self.cameras['placeholder'] = Camera(id = "Placeholder", ip="test", type="Test", width=1920, height=1080, framerate=60)
-        self.cameras['placeholder'].provider = self.camera_providers.get(self.cameras['test'].type, None)
+        self.cameras['Test'] = Camera(id = "Test", ip="test", type="Test", width=1920, height=1080, framerate=60)
+        self.cameras['Placeholder'] = Camera(id = "Placeholder", ip="test", type="Test", width=1920, height=1080, framerate=60)
 
-
-        # Store desired source configurations
         self.desired_sources = {}
-
 
         self._test_zoom_dir = 1
 
-
-        # Store thread references
+        # Thread references
         self.pipeline_thread = None
         self.handler_thread = None
         self.mqtt_thread = None
         self.monitor_thread = None
         self.monitor_stop_event = None
 
-        # Store process references
+        # Camera monitoring
         self.monitor_stop_event = threading.Event()
-        self.camera_monitor_stop_event = mp.Event()  # multiprocessing Event
+        self.camera_monitor_stop_event = mp.Event()
 
-        # Add disconnect tracking
-        self.disconnect_counters = self.manager.dict()  # Track disconnect counts
-        self.disconnect_timestamps = self.manager.dict()  # Track when disconnects occur
+        self.manager = mp.Manager()
+        self.camera_status = self.manager.dict()
+        self.camera_uris = self.manager.dict()
+        self.disconnect_counters = self.manager.dict()
+        self.disconnect_timestamps = self.manager.dict() 
         self.max_disconnects = 5  # Maximum number of disconnects allowed
         self.disconnect_window = 20  # Time window in seconds (5 minutes)
 
@@ -180,7 +170,60 @@ class App():
                     self._handle_vision_controllers_message(topic_split, payload)
             elif topic_split[1] == 'Cameras':
                 self._handle_cameras_message(topic_split, payload)
-            
+
+    def _handle_source_command(self, source_id: int, payload: Optional[str]) -> None:
+        """
+        Handle `subcommand == "Source"`: assign a camera to a source slot and (re)build the bin.
+
+        - Picks the camera by label (`payload`)
+        - If camera is offline/missing, falls back to 'test' placeholder
+        - Builds the Gst.Bin using CameraFactory
+        - Passes the prebuilt bin to PipelineManager (which links & syncs)
+        """
+        source_label = (payload or "").strip() or "Placeholder"
+
+        # Create/obtain a source slot object if your structure needs it
+        try:
+            src_slot = self.pipeline_manager.sources[source_id]
+        except (KeyError, IndexError):
+            logger.error(f"Invalid source_id {source_id}; no such source slot")
+            return
+
+        old_label = getattr(src_slot, "cam_id", None)
+        if old_label == source_label:
+            logger.debug(f"Source {source_id} already bound to '{source_label}'; no change")
+            return
+
+        logger.debug(f"Source {source_id}: {old_label} → {source_label}")
+        setattr(src_slot, "cam_id", source_label)
+
+        self.desired_sources[source_id] = source_label
+
+        # Resolve target camera (or placeholder)
+        cam = self.cameras.get(source_label)
+        if cam is None:
+            logger.warning(f"Camera '{source_label}' not found; using placeholder")
+            use_cam = self.cameras.get("test")
+            if use_cam is None:
+                logger.error("No placeholder camera 'test' configured; aborting")
+                return
+        else:
+            self.camera_uris[source_label] = getattr(cam, "uri", "")
+
+            is_online = self.camera_status.get(cam.id, False)
+            use_cam = cam if is_online else self.cameras.get("test", cam)
+            if not is_online:
+                logger.debug(f"Camera '{cam.id}' offline → using placeholder for bin build")
+
+        self._add_camera_source(source_id, use_cam)
+        logger.debug(f"Adding source {source_id} with camera {use_cam.id} ({use_cam.type})")
+
+        # Update slot metadata (nice to have)
+        setattr(src_slot, "camera", use_cam)
+        setattr(src_slot, "type", getattr(use_cam, "type", "Placeholder"))
+        setattr(src_slot, "name", getattr(use_cam, "ip", f"Source{source_id}"))
+
+        logger.info(f"Source {source_id} now set to camera '{getattr(use_cam, 'id', '?')}' (type={getattr(use_cam, 'type', '?')})")
 
     def _handle_vision_controllers_message(self, topic_split, payload):
         command = topic_split[3]
@@ -220,73 +263,60 @@ class App():
         
 
         if subcommand == 'Source':
-            source_label = payload
+            self._handle_source_command(source_id, payload)
+            # source_label = payload
 
-            if source_label is None or source_label == "":
-                source_label = "Placeholder"
+            # if source_label is None or source_label == "":
+            #     source_label = "Placeholder"
 
-            # New source?
-            if self.pipeline_manager.sources[source_id].cam_id != source_label:
-                logger.debug(f"Old source: {self.pipeline_manager.sources[source_id].cam_id}  -->   New source: {source_label}")
+            # # New source?
+            # if self.pipeline_manager.sources[source_id].cam_id != source_label:
+            #     logger.debug(f"Old source: {self.pipeline_manager.sources[source_id].cam_id}  -->   New source: {source_label}")
 
-                self.desired_sources[source_id] = source_label
+            #     self.desired_sources[source_id] = source_label
 
-                source = self.pipeline_manager.sources[source_id]
-                if source is None:
-                    source = Source(id=source_id, cam_id=source_label)
+            #     source = self.pipeline_manager.sources[source_id]
+            #     if source is None:
+            #         source = Source(id=source_id, cam_id=source_label)
 
-                self.pipeline_manager.sources[source_id].cam_id = source_label
+            #     self.pipeline_manager.sources[source_id].cam_id = source_label
                 
-                # Assign Camera to source
-                if self.cameras.get(source_label, None) is not None:
-                    self.camera_uris[source.cam_id] = self.cameras[source.cam_id].uri
-                    source.camera = self.cameras[source.cam_id] 
+
+
+            #     # Assign Camera to source
+            #     if self.cameras.get(source_label, None) is not None:
+            #         self.camera_uris[source.cam_id] = self.cameras[source.cam_id].uri
+            #         source.camera = self.cameras[source.cam_id] 
                     
-                try: # Try add new source to pipeline
-                    logger.debug(f"Adding new source")
-                    if self.camera_status.get(source.cam_id, False):
-                        self.pipeline_manager.add_source(source_id, camera=self.cameras[source.cam_id])
-                    else:
-                        logger.debug(f"Camera {source.cam_id} is not available, adding placeholder source")
-                        self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
-                except KeyError as e:
-                    logger.error(f"No camera with that id ({source.cam_id}). Could not find camera: {e}")
+            #     try: # Try add new source to pipeline
+            #         logger.debug(f"Adding new source")
+            #         if self.camera_status.get(source.cam_id, False):
+            #             self.pipeline_manager.add_source(source_id, camera=self.cameras[source.cam_id])
+            #         else:
+            #             logger.debug(f"Camera {source.cam_id} is not available, adding placeholder source")
+            #             self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+            #     except KeyError as e:
+            #         logger.error(f"No camera with that id ({source.cam_id}). Could not find camera: {e}")
 
-                    logger.debug(f"Adding placeholder source")
-                    self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
-                except Exception as e:
-                    logger.error(f"Could not add source {source_id}. {type(e).__name__}: {e}")
-                    logger.debug(f"Adding placeholder source")
-                    self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+            #         logger.debug(f"Adding placeholder source")
+            #         self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+            #     except Exception as e:
+            #         logger.error(f"Could not add source {source_id}. {type(e).__name__}: {e}")
+            #         logger.debug(f"Adding placeholder source")
+            #         self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
 
 
-                try: # Try get control module for camera
-                    source.provider = self.camera_providers.get(source.type, None)
 
-                    if source.provider is not None:
-                        module_path = source.provider.get("controller_module_path")
-                        module_name = module_path.split("/")[-1].split(".")[0:-1][0]
 
-                        if module_name in sys.modules:
-                            control_module = sys.modules[module_name]
-                        else:
-                            spec = importlib.util.spec_from_file_location(module_name, module_path)
-                            control_module = importlib.util.module_from_spec(spec)
-                            spec.loader.exec_module(control_module)
-                            sys.modules[module_name] = control_module
+            #     print(f"\n\n\nself.camera_providers: {self.camera_providers}\n\n\n")
 
-                            logger.debug(f"Imported module \"{module_name}\" for type \"{source.type}\", {module_path}") 
+            #     try:
+            #         source.control = self.camera_factory.create_camera_control(source.camera)
+            #     except Exception as e:
+            #         logger.error(f"Could not create control for source {source_id}. {type(e).__name__}: {e}")
+            #         source.control = None
 
-                        source.control = control_module.CameraControl(source.camera)
-
-                        print(f"\n\n\nSet source.control to {source.control}")
-                    else:
-                        logger.info(f"No control provider for camera of type: {source.type}")
-                except Exception as e:
-                    logger.error(f"Could not import control module for type \"{source.type}\": {e}")
-                    
-                
-                self.pipeline_manager.sources[source_id] = source
+            #     self.pipeline_manager.sources[source_id] = source
         
 
         elif subcommand == 'OSD':
@@ -580,7 +610,14 @@ class App():
         camera.ip = parsed.hostname
         camera.name = payload.get('DisplayName', camera.name)
         camera.type = payload.get('Type', camera.type)
-        camera.provider = self.camera_providers.get(camera.type, None)
+        camera.control = None
+        try:
+            camera.control = self.camera_factory.create_camera_control(camera)
+        except KeyError as e:
+            logger.error(f"Camera type '{camera.type}' not registered in provider registry: {e}")
+        except ImportError as e:
+            logger.error(f"Failed to import camera control for type '{camera.type}': {e}")
+        
         camera.width = int(payload.get('Width', camera.width))
         camera.height = int(payload.get('Height', camera.height))
         camera.framerate = float(payload.get('Framerate', camera.framerate))

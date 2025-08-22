@@ -396,7 +396,118 @@ class PipelineManager:
         with self.source_lock:
             return self._remove_source_internal(source_id)
 
-    def add_source(self, source_id: int, camera: Camera = None, provider = None) -> bool:
+    def add_source(self, source_id: int, *, bin_obj: Optional[Any] = None, camera: Optional[Any] = None) -> bool:
+        """
+        Add/replace a source at `source_id`.
+
+        Args:
+            source_id: Slot index (0..N-1).
+            bin_obj: A ready Gst.Bin (or None to use placeholder).
+            camera: Camera metadata for book-keeping / logging.
+
+        Returns:
+            True if added & linked; False on failure.
+        """
+        with self.source_lock:
+            logger.debug(f"Add Source: id={source_id}, camera={getattr(camera, 'id', None)}")
+
+            if self.pipeline is None or self.streammux is None:
+                logger.error("Pipeline or streammux not initialized.")
+                return False
+
+            if not (0 <= source_id < self.max_num_sources):
+                raise IndexError("Source id out of range")
+
+            # Create placeholder if no bin passed
+            if bin_obj is None:
+                logger.debug(f"No bin provided; creating placeholder for slot {source_id}")
+                bin_obj = create_placeholder_source_bin(source_id, camera)
+                if bin_obj is None:
+                    logger.error("Placeholder bin factory returned None")
+                    return False
+
+            # Remove current bin (if any)
+            current = self.sources[source_id]
+            if getattr(current, "bin", None) is not None:
+                if not self._remove_source_internal(source_id):
+                    logger.error(f"Failed to remove existing source at slot {source_id}")
+                    return False
+
+            # Update source slot metadata
+            current.bin = bin_obj
+            current.id = source_id
+            current.active = False
+            current.eos = False
+            if camera is not None:
+                current.camera = camera
+                current.type = getattr(camera, "type", "Unknown")
+                current.ip = getattr(camera, "ip", None)
+                current.name = getattr(camera, "ip", f"Source{source_id}")
+            else:
+                current.type = "Placeholder"
+                current.name = f"Placeholder{source_id}"
+
+            # Add bin to pipeline
+            try:
+                self.pipeline.add(bin_obj)
+            except Exception as e:
+                logger.error("pipeline.add(bin) failed: %s", e)
+                return False
+
+            # Link to streammux (sink_N)
+            src_pad = bin_obj.get_static_pad("src")
+            sink_pad = self.streammux.request_pad_simple(f"sink_{source_id}")
+            if not src_pad:
+                logger.error("No 'src' pad on source bin %s", source_id)
+                return False
+            if not sink_pad:
+                logger.error("No 'sink_%s' pad on streammux", source_id)
+                return False
+
+            try:
+                ok = src_pad.link(sink_pad) == Gst.PadLinkReturn.OK
+            except Exception as e:
+                logger.error(f"Pad link failed: {e}")
+                return False
+            if not ok:
+                logger.error(f"Unable to link source bin {source_id} → streammux.sink_{source_id}")
+                return False
+
+            # Bus wiring for non-placeholder sources
+            if getattr(current, "type", "") not in {"Placeholder", "Test"}:
+                bus = self.pipeline.get_bus()
+                if bus:
+                    bus.add_signal_watch()
+                    bus.connect("message::error", self._handle_source_error, source_id)
+
+            # Sync state
+            try:
+                sync_ok = bin_obj.sync_state_with_parent()
+            except Exception as e:
+                logger.error(f"sync_state_with_parent failed: {e}")
+                return False
+            if not sync_ok:
+                try:
+                    bin_obj.set_state(Gst.State.NULL)
+                except Exception:
+                    pass
+                logger.error(f"Source {source_id} failed to sync with parent")
+                return False
+
+            # Book-keeping
+            self.num_sources += 1
+            ip = getattr(current, "ip", None)
+            if ip:
+                self.active_source_ips.append(ip)
+
+            logger.debug(f"Source {source_id} added and linked")
+
+            Gst.debug_bin_to_dot_file(self.pipeline, Gst.DebugGraphDetails.ALL , "pipeline-after-add")
+
+            return True
+        
+
+    def add_source_(self, source_id: int, camera: Camera = None, provider = None) -> bool:
         """
         Add a source to the pipeline.
 
