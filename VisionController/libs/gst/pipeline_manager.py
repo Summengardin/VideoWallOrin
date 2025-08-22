@@ -64,34 +64,7 @@ class PipelineManager:
         self.pipeline_pause_because_last_source = False
         self.osd_frame_number = 0
         self.osd_text = ""
-        self.osd_text_dict = [
-            {
-                "text": "<Name of source>  <States>",
-                "x": 0,
-                "y": 200,
-                "font_size": 18,
-            },
-            {
-                "text": "Load: ",
-                "x": 1920//2,
-                "y": 200,
-                "font_size": 18,
-            },
-            {
-                "text": "<User set>",
-                "x": 1920 - 200,
-                "y": 200,
-                "font_size": 18,
-            },
-
-            {
-                "text": "<New setting> :  <Value>",
-                "x": 1920//2,
-                "y": 1080//2,
-                "font_size": 48,
-            },
-
-        ]
+        
         self.fps = 0
         self.last_fps_time = time.time()
 
@@ -332,8 +305,7 @@ class PipelineManager:
         tiler_sink_pad = self.tiler.get_static_pad("sink")
         if not tiler_sink_pad:
             logger.warning("Unable to get Tiler sink pad")
-        else:            
-            # id = tiler_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
+        else:
             id = tiler_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_manager_probe, None)
             # self.tiler_probe_ids.append(id)
 
@@ -800,172 +772,6 @@ class PipelineManager:
         self.fps = delta
 
         return True
-    
-
-    
-    def _osd_sink_pad_buffer_probe(self, pad, info, user_data):
-        gst_buffer = info.get_buffer()
-        if not gst_buffer:
-            logger.warning("Unable to get GstBuffer ")
-            return
-        
-        self.osd_frame_number += 1
-
-        if self.osd_frame_number % 60 == 0:
-            self.osd_text = f"Frame numbers: {self.osd_frame_number}"
-
-        batch_text = ""
-            
-        batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
-        l_frame = batch_meta.frame_meta_list
-        global moving_x, moving_y
-        while l_frame is not None:
-
-            try:
-                frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
-            except StopIteration:
-                break
-
-            pad_index = frame_meta.pad_index
-            ntp_ts = frame_meta.ntp_timestamp
-            font_size = 18
-
-            
-            display_meta=pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-            display_meta.num_labels = 5 + len(self.osd_text_dict)
-            left_text_params = display_meta.text_params[0+len(self.osd_text_dict)]
-            left_text2_params = display_meta.text_params[1+ len(self.osd_text_dict)]
-            mid_text_params = display_meta.text_params[2+len(self.osd_text_dict)]
-            right_text_params = display_meta.text_params[3+len(self.osd_text_dict)]
-            setting_text_params = display_meta.text_params[4+len(self.osd_text_dict)]
-
-            # for i in range (0, len(self.osd_text_dict)):
-            #     display_meta.text_params[i].display_text = self.osd_text_dict[i]['text']
-
-                
-            #     display_meta.text_params[i].x_offset = self.osd_text_dict[i]['x']
-            #     display_meta.text_params[i].y_offset = self.osd_text_dict[i]['y']
-
-            #     display_meta.text_params[i].font_params.font_size = self.osd_text_dict[i]['font_size']
-            #     display_meta.text_params[i].font_params.font_name = "Noto Serif Bold"
-            #     display_meta.text_params[i].font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            #     display_meta.text_params[i].set_bg_clr = 1
-            #     display_meta.text_params[i].text_bg_clr.set(0.0, 0.0, 0.0, 0.6)                
-
-
-
-            left_text = f"{self.sources[frame_meta.source_id].name:<20}   |   | X |   |   |"
-            left_text_2 = f""
-            mid_text = f"{self.osd_text}"
-            right_text = f"Source: {self.sources[frame_meta.source_id].ip}"
-
-            setting_text = "No Camera"
-            if self.sources[frame_meta.source_id].camera:
-                setting_text = f"Zoom :   {self.sources[frame_meta.source_id].camera.zoom}"
-
-
-            left_text_params.display_text = left_text
-            left_text2_params.display_text = left_text_2
-            mid_text_params.display_text = mid_text
-            right_text_params.display_text = right_text
-            setting_text_params.display_text = setting_text
-
-            left_text_params.x_offset = 0
-            left_text_params.y_offset = 0
-
-            left_text2_params.x_offset = 0
-            left_text2_params.y_offset = font_size*2
-
-            mid_text_params.x_offset = (1920 - len(mid_text) * font_size) // 2
-            mid_text_params.y_offset = 0
-            
-            right_text_params.x_offset = 1920 - int(len(right_text) * font_size)
-            right_text_params.y_offset = 0
-
-            setting_text_params.x_offset = (1920 - int(len(setting_text) * font_size * 2) ) // 2
-            setting_text_params.y_offset = 1080 - 100
-
-
-        
-            left_text_params.font_params.font_name = "Noto Serif Bold"
-            left_text_params.font_params.font_size = font_size
-            left_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            left_text_params.set_bg_clr = 1
-            left_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
-
-            left_text2_params.font_params.font_name = "Noto Serif Bold"
-            left_text2_params.font_params.font_size = font_size
-            left_text2_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            left_text2_params.set_bg_clr = 1
-            left_text2_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
-
-            mid_text_params.font_params.font_name = "Noto Serif Bold"
-            mid_text_params.font_params.font_size = font_size
-            mid_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            mid_text_params.set_bg_clr = 1
-            mid_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
-
-            right_text_params.font_params.font_name = "Noto Serif Bold"
-            right_text_params.font_params.font_size = font_size
-            right_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            right_text_params.set_bg_clr = 1
-            right_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
-
-            setting_text_params.font_params.font_name = "Noto Serif Bold"
-            setting_text_params.font_params.font_size = font_size * 2
-            setting_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            setting_text_params.set_bg_clr = 1
-            setting_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
-
-
-            
-
-
-            # Draw triangle
-
-            display_meta.num_lines = 3
-            line_params_1 = display_meta.line_params[0]
-            line_params_2 = display_meta.line_params[1]
-            line_params_3 = display_meta.line_params[2]
-
-
-
-            # x1, y1 = 960 + moving_x, 400 + moving_y  # Top vertex
-            # x2, y2 = 860 + moving_x, 600 + moving_y  # Bottom left vertex
-            # x3, y3 = 1060 + moving_x, 600 + moving_y # Bottom right vertex
-            moving_x = int(math.sin(time.time()) * 200)
-            moving_y = int(math.cos(time.time()) * 200)
-            triangle_x, triangle_y = 1920//2 + moving_x, 1080//2 + moving_y
-            (x1, y1), (x2, y2), (x3, y3) = get_triangle_points(triangle_x, triangle_y, 100)
-
-            line_params_1.x1, line_params_1.y1 = x1, y1
-            line_params_1.x2, line_params_1.y2 = x2, y2
-            line_params_1.line_width = 10
-            line_params_1.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
-
-            line_params_2.x1, line_params_2.y1 = x2, y2
-            line_params_2.x2, line_params_2.y2 = x3, y3
-            line_params_2.line_width = 10
-            line_params_2.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
-
-            line_params_3.x1, line_params_3.y1 = x3, y3
-            line_params_3.x2, line_params_3.y2 = x1, y1
-            line_params_3.line_width = 10
-            line_params_3.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
-
-
-
-
-
-            pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
-
-            try:
-                l_frame=l_frame.next
-            except StopIteration:
-                break
-    
-
-        return Gst.PadProbeReturn.OK
 
 
     def _osd_manager_probe(self, pad, info, user_data):
