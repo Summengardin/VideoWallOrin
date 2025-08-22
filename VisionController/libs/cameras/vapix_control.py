@@ -1,6 +1,7 @@
 import time
 import logging
 import json
+import threading
 
 import sys
 sys.path.append('/app/VisionController/libs')
@@ -33,19 +34,71 @@ class VapixControl(CameraControl):
             self._current_magnification = 1.0 # 0 to 100
         
 
-
     def continuous_zoom(self, zoom_speed: float):
         zoom_speed = clamp(zoom_speed, -1.0, 1.0)
 
-        if self._use_optics:
-            small_speed = 0.1 * zoom_speed
-            self._current_magnification += small_speed
-            self._current_magnification = clamp(self._current_magnification, 1, self._max_magnification)
-            # print(f"\n\n\nSetting optics magnification to {self._current_magnification}. Speed of {zoom_speed}\n\n\n")
-            self.optics.set_magnification(optics_id=0, magnification=self._current_magnification)
-        else:
-            zoom_speed = scale(zoom_speed, from_min=-1.0, from_max=1.0, to_min=-100, to_max=100)
-            self.ptz.continuous_zoom(zoom_speed=zoom_speed)
+        if not self._use_optics:
+            try:
+                self.ptz.continuous_zoom(zoom_speed=zoom_speed * 100.0)  # [-100..100]
+            except Exception:
+                logger.exception("PTZ continuous_zoom failed")
+            return
+        # lazy init
+        if not hasattr(self, "_mag_thread"):
+            self._mag_speed = 0.0
+            self._mag_rate = 2.0
+            self._mag_stop = threading.Event()
+            self._mag_thread = None
+            self._mag_t = time.monotonic()
+
+        self._mag_speed = zoom_speed
+
+        # start worker if needed
+        if zoom_speed != 0.0 and (self._mag_thread is None or not self._mag_thread.is_alive()):
+            self._mag_stop.clear()
+
+            def _worker():
+                last = None
+                while not self._mag_stop.is_set():
+                    now = time.monotonic()
+                    dt = now - self._mag_t
+                    self._mag_t = now
+
+                    if self._mag_speed == 0.0: 
+                        time.sleep(0.05)
+                        self._mag_stop.set() 
+                        continue
+
+                    self._current_magnification = max(1.0, min(
+                        self._max_magnification,
+                        self._current_magnification + self._mag_speed * self._mag_rate * dt))
+                    
+                    mag = self._current_magnification
+                    if last is None or abs(mag - last) > 0.01:  # only set if changed
+                        try: 
+                            self.optics.set_magnification(0, mag)
+                            last = mag
+                        except Exception: 
+                            logger.exception("set_magnification failed")
+                    time.sleep(0.05)
+
+            self._mag_thread = threading.Thread(target=_worker, daemon=True)
+            self._mag_thread.start()
+
+        # stop worker on zero
+        if zoom_speed == 0.0 and self._mag_thread and self._mag_thread.is_alive():
+            self._mag_stop.set()
+            try: 
+                self._mag_thread.join(0.2)
+            except Exception: 
+                pass
+            self._mag_thread = None
+
+        try: 
+            self.optics.set_magnification(0, self._current_magnification)
+        except Exception: 
+            logger.exception("immediate set_magnification failed")
+
 
     def continuous_pan(self, pan_speed: float):
         if not self.ptz.is_available:
