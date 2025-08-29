@@ -19,7 +19,7 @@ camera_providers:
     type: Test
     controller_file: ""
     controller_class: ""
-    source_bin_file: "/app/VideoWallOrin/VisionController/libs/cameras/placeholder_source_bin.py"
+    source_bin_file: "/app/VisionController/libs/cameras/placeholder_source_bin.py"
     source_bin_func: "create_source_bin"
     kwargs: {}
 
@@ -28,7 +28,7 @@ camera_providers:
     type: Placeholder
     controller_file: ""
     controller_class: ""
-    source_bin_file: "/app/VideoWallOrin/VisionController/libs/cameras/placeholder_source_bin.py"
+    source_bin_file: "/app/VisionController/libs/cameras/placeholder_source_bin.py"
     source_bin_func: "create_source_bin"
     kwargs: {}
 
