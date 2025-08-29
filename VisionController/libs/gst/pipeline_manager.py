@@ -38,6 +38,7 @@ class PipelineManager:
     def __init__(self, config = None):
         self.ready = False
         self.window_close_callback = None
+        self.shutdown_callback = None
 
         self.config = config
         self._initiate_config()
@@ -95,7 +96,7 @@ class PipelineManager:
         if state_ret == Gst.StateChangeReturn.FAILURE:
             logger.critical("Unable to set the pipeline to the playing state")
             logger.info("Have you set the DISPLAY variable?     export DISPLAY=:0")
-            self.window_close_callback()
+            self.shutdown_callback()
             return
 
         GLib.timeout_add(10000, self._print_fps)
@@ -268,6 +269,7 @@ class PipelineManager:
         for var_name, element in self.elements.items():
             if not element:
                 logger.error(f"Unable to create {var_name}")
+                self.shutdown_callback()
                 return
             self.pipeline.add(element)
 
@@ -919,6 +921,10 @@ class PipelineManager:
     def set_window_close_callback(self, callback):
         """Set a callback function to be called when window close is detected"""
         self.window_close_callback = callback
+
+    def set_shutdown_callback(self, callback):
+        """Set a callback function to be called when shutdown is detected"""
+        self.shutdown_callback = callback
 
     def start_monitoring(self):
         """Start periodic monitoring of sources."""

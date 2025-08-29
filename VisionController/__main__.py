@@ -49,6 +49,7 @@ if __name__ == "__main__":
         signal.signal(signal.SIGTERM, handle_shutdown)
         
         app.pipeline_manager.set_window_close_callback(lambda: handle_window_close(app))
+        app.pipeline_manager.set_shutdown_callback(lambda: shutdown_event.set())
         
         app.run()
         
