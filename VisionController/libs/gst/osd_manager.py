@@ -219,28 +219,24 @@ class OSDManager:
     def __del__(self):
         self.stop()
 
-    def create_triangle(self, x: int, y: int, radius: int, line_width: int, line_color: Tuple[float, float, float, float], angle: float = 0, timeout: Optional[float] = -1, triangle_id: Optional[str] = None) -> str:
+    def create_triangle(self, x: int, y: int, radius: int, border_width: int, border_color: Tuple[float, float, float, float], angle: float = 0, enable: bool = False, triangle_id: Optional[str] = None) -> str:
         # vertices = build_triangle((x, y), radius, angle)
         if triangle_id is None:
             triangle_id = self._generate_id()
         self.elements[triangle_id] = {
             "type": "triangle",
             "object": Triangle(x, y, radius, border_width, border_color, angle),
-            "object": Triangle(x, y, radius, line_width, line_color, angle),
-            "timeout": time.time() + timeout if timeout > 0 else -1,
-            "visible": True
+            "enable": enable
         }
         return triangle_id
 
-    def create_polygon(self, vertices: List[Tuple[int, int]], line_width: int, line_color: Tuple[float, float, float, float], timeout: Optional[float] = -1, polygon_id: Optional[str] = None) -> str:
+    def create_polygon(self, vertices: List[Tuple[int, int]], border_width: int, border_color: Tuple[float, float, float, float], enable: bool = False, polygon_id: Optional[str] = None) -> str:
         if polygon_id is None:
             polygon_id = self._generate_id()
         self.elements[polygon_id] = {
             "type": "polygon",
             "object": Polygon(vertices, border_width, border_color),
-            "object": Polygon(vertices, line_width, line_color),
-            "timeout": time.time() + timeout if timeout > 0 else -1,
-            "visible": True
+            "enable": enable
         }
 
         return polygon_id
@@ -252,9 +248,9 @@ class OSDManager:
                             font_name: str = DEFAULT_FONT_NAME,
                             font_size: int = None,
                             font_color: Tuple[float, float, float, float] = None, 
-                            bg_color: Tuple[float, float, float, float] = None, 
-                            timeout: Optional[float] = -1, 
-                            text_id: Optional[str] = None) -> str:
+                            bg_color: Tuple[float, float, float, float] = None,
+                            text_id: Optional[str] = None,
+                            enable: bool = False) -> str:
         if text_id is None:
             text_id = self._generate_id()
         try:
@@ -273,8 +269,7 @@ class OSDManager:
                 font_color,
                 bg_color
             ),
-            "timeout": time.time() + timeout if timeout > 0 else -1,
-            "visible": True
+            "enable": enable
         }
         return text_id
     
@@ -288,7 +283,7 @@ class OSDManager:
             "enable": enable
         }
         return rectangle_id
- 
+
     
     def create_symbol(self, symbol: str,
                       x: int = 0,
@@ -297,7 +292,7 @@ class OSDManager:
                       font_size: int = 40,
                       color: Tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0),
                       bg_color: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.6),
-                      timeout: Optional[float] = -1,
+                      enable: bool = False,
                       symbol_id: Optional[str] = None) -> str:
         if symbol_id is None:
             symbol_id = self._generate_id()
@@ -319,18 +314,11 @@ class OSDManager:
                 color=color,
                 bg_color=bg_color
             ),
-            "timeout": time.time() + timeout if timeout > 0 else -1,
-            "visible": True
+            "enable": enable
         }
         return symbol_id
 
-    def update_triangle(self, element_id: str, x: int, y: int, radius: int, line_width: int, line_color: Tuple[float, float, float, float], angle: float = 0):
-        if element_id in self.elements and self.elements[element_id]["type"] == "triangle":
-            vertices = build_triangle((x, y), radius, angle)
-            self.elements[element_id]["object"] = Triangle(
-                vertices, line_width, line_color)
-
-    def update_polygon(self, element_id: str, vertices: List[Tuple[int, int]], line_width: int, line_color: Tuple[float, float, float, float]):
+    def update_polygon(self, element_id: str, vertices: List[Tuple[int, int]], border_width: int, border_color: Tuple[float, float, float, float], enable: bool = False):
         if element_id in self.elements and self.elements[element_id]["type"] == "polygon":
             self.elements[element_id]["object"] = Polygon(
                 vertices, border_width, border_color)
@@ -345,7 +333,7 @@ class OSDManager:
                     font_size: Optional[int] = None,
                     font_color: Optional[Tuple[float, float, float, float]] = None,
                     bg_color: Optional[Tuple[float, float, float, float]] = None,
-                    timeout: Optional[float] = None) -> str:
+                    enable: Optional[bool] = None) -> str:
         """ Update or create a text element with the given parameters. """
         # logger.debug(f"upsert_text: {text_id}, {text}, {x}, {y}, {alignment}, {font_size}, {color}, {bg_color}")
         
@@ -368,13 +356,12 @@ class OSDManager:
                 self.elements[text_id]["object"].font_color = font_color
             if bg_color is not None:
                 self.elements[text_id]["object"].bg_color = bg_color
-            if timeout is not None and change:
-                self.elements[text_id]["timeout"] = time.time() + timeout if timeout > 0 else -1
-                self.elements[text_id]["visible"] = True
+            if enable is not None:
+                self.elements[text_id]["enable"] = enable
             
             return text_id
 
-        return self.create_text(text, x, y, alignment, font_name, font_size, font_color, bg_color, timeout, text_id)
+        return self.create_text(text, x, y, alignment, font_name, font_size, font_color, bg_color, text_id, enable)
                     
 
     def upsert_triangle(self,
@@ -385,10 +372,10 @@ class OSDManager:
                         border_width: Optional[int] = None,
                         border_color: Optional[Tuple[float, float, float, float]] = None,
                         angle: Optional[float] = None,
-                        timeout: Optional[float] = -1) -> str:
+                        enable: Optional[bool] = None) -> str:
         """ Update or create a triangle with the given parameters. """
         logger.debug(
-            f"upsert_triangle: {triangle_id}, {x}, {y}, {radius}, {line_width}, {line_color}, {angle}, {timeout}")
+            f"upsert_triangle: {triangle_id}, {x}, {y}, {radius}, {border_width}, {border_color}, {angle}, {enable}")
         if triangle_id is not None and triangle_id in self.elements and self.elements[triangle_id]["type"] == "triangle":
             if x is not None:
                 self.elements[triangle_id]["object"].x = x
@@ -402,13 +389,15 @@ class OSDManager:
                 self.elements[triangle_id]["object"].border_color = border_color
             if angle is not None:
                 self.elements[triangle_id]["object"].angle = angle
-            if timeout is not None:
-                self.elements[triangle_id]["timeout"] = time.time() + timeout if timeout > 0 else -1
-                self.elements[triangle_id]["visible"] = True
+            if enable is not None:
+                self.elements[triangle_id]["enable"] = enable
 
             self.elements[triangle_id]["object"].update()
 
             return triangle_id
+
+        return self.create_triangle(x, y, radius, border_width, border_color, angle, enable, triangle_id)
+    
 
     def upsert_rectangle(self,
                          rectangle_id: Optional[str] = None,
@@ -454,10 +443,10 @@ class OSDManager:
                       font_name: Optional[str] = None,
                       color: Optional[Tuple[float, float, float, float]] = None,
                       bg_color: Optional[Tuple[float, float, float, float]] = None,
-                      timeout: Optional[float] = None) -> str:
+                      enable: Optional[bool] = None) -> str:
         """ Update or create a symbol with the given parameters. """
         logger.debug(
-            f"upsert_symbol: {symbol_id}, {symbol}, {x}, {y}, {font_size}, {font_name}, {color}, {bg_color}, {timeout}")
+            f"upsert_symbol: {symbol_id}, {symbol}, {x}, {y}, {font_size}, {font_name}, {color}, {bg_color}, {enable}")
         if symbol_id is not None and symbol_id in self.elements and self.elements[symbol_id]["type"] == "symbol":
             if symbol is not None:
                 try:
@@ -477,13 +466,12 @@ class OSDManager:
                 self.elements[symbol_id]["object"].color = color
             if bg_color is not None:
                 self.elements[symbol_id]["object"].bg_color = bg_color
-            if timeout is not None:
-                self.elements[symbol_id]["timeout"] = time.time() + timeout if timeout > 0 else -1
-                self.elements[symbol_id]["visible"] = True
+            if enable is not None:
+                self.elements[symbol_id]["enable"] = enable
 
             return symbol_id
         
-        return self.create_symbol(symbol, x, y, font_name, font_size, color, bg_color, timeout, symbol_id)
+        return self.create_symbol(symbol, x, y, font_name, font_size, color, bg_color, enable, symbol_id)
 
     def _extract_base_key(self, key: str) -> str:
         """Extract the base key from a key that may have prefixes/suffixes."""
@@ -523,7 +511,7 @@ class OSDManager:
                 font_size=int(normalized_dict.get("FontSize", 18)),
                 font_color=tuple(map(float, normalized_dict.get("FontColor", "1.0,1.0,1.0,1.0").split(","))),
                 bg_color=tuple(map(float, normalized_dict.get("BGColor", "0.0,0.0,0.0,0.6").split(","))),
-                timeout=float(normalized_dict.get("Timeout", 0))
+                enable=int(normalized_dict.get("Enable", True))
             )
 
         return self.create_text(
@@ -535,7 +523,7 @@ class OSDManager:
             font_size=int(normalized_dict.get("FontSize", 18)),
             font_color=tuple(map(float, normalized_dict.get("FontColor", "1.0,1.0,1.0,1.0").split(","))),
             bg_color=tuple(map(float, normalized_dict.get("BGColor", "0.0,0.0,0.0,0.6").split(","))),
-            timeout=float(normalized_dict.get("Timeout", 0)),
+            enable=int(normalized_dict.get("Enable", True)),
             text_id=text_id
         )
     
@@ -606,7 +594,7 @@ class OSDManager:
                 font_name=normalized_dict.get("FontName", DEFAULT_SYMBOL_FONT_NAME),
                 color=tuple(map(float, normalized_dict.get("FontColor", "1.0,1.0,1.0,1.0").split(","))),
                 bg_color=tuple(map(float, normalized_dict.get("BGColor", "0.0,0.0,0.0,0.6").split(","))),
-                timeout=float(normalized_dict.get("Timeout", 0))
+                enable=int(normalized_dict.get("Enable", True))
             )
 
         return self.create_symbol(
@@ -617,8 +605,8 @@ class OSDManager:
             font_name=normalized_dict.get("FontName", DEFAULT_SYMBOL_FONT_NAME),
             color=tuple(map(float, normalized_dict.get("FontColor", "1.0,1.0,1.0,1.0").split(","))),
             bg_color=tuple(map(float, normalized_dict.get("BGColor", "0.0,0.0,0.0,0.6").split(","))),
-            timeout=float(normalized_dict.get("Timeout", 0)),
-            symbol_id=symbol_id
+            symbol_id=symbol_id,
+            enable=int(normalized_dict.get("Enable", True))
         )
     
     
@@ -628,10 +616,11 @@ class OSDManager:
             del self.elements[element_id]
 
     def _cleanup_expired_elements(self, current_time: float):
-        for element in self.elements.values():
-            timeout = element.get("timeout")
-            if timeout is not None and timeout >= 0 and timeout <= current_time:
-                element["visible"] = False
+        pass
+        # for element in self.elements.values():
+        #     timeout = element.get("timeout")
+        #     if timeout is not None and timeout >= 0 and timeout <= current_time:
+        #         element["visible"] = False
 
         # self.elements = {element_id: element for element_id, element in self.elements.items(
         # ) if element["timeout"] is None or element["timeout"] < 0 or element["timeout"] > current_time}
@@ -644,8 +633,10 @@ class OSDManager:
         return [line.to_dict_ints() for line in lines]
 
     def get_all_texts_as_dicts(self) -> List[Dict]:
-        return [element["object"].to_dict() for element in self.elements.values() if (element["type"] == "text" and element["visible"] == True)]
+        return [element["object"].to_dict() for element in self.elements.values() if ((element["type"] == "text") and element["enable"])]
 
     def get_all_symbols_as_dicts(self) -> List[Dict]:
+        return [element["object"].to_dict() for element in self.elements.values() if ((element["type"] == "symbol") and element["enable"])]
+
     def get_all_rectangles_as_dicts(self) -> List[Dict]:
         return [element["object"].to_dict() for element in self.elements.values() if ((element["type"] == "rectangle") and element["enable"])]
