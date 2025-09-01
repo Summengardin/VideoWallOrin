@@ -44,6 +44,38 @@ class Line:
             "line_color": self.color
         }
 
+class Rectangle: 
+    def __init__(self, x: int, y: int, width: int, height: int, border_width: int, border_color: tuple, bg_color: Optional[tuple] = None):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.border_width = border_width
+        self.border_color = border_color
+        self.bg_color = bg_color
+
+    def to_lines(self) -> List[Line]:
+        lines = []
+        corners = [
+            (self.x, self.y),
+            (self.x + self.width, self.y),
+            (self.x + self.width, self.y + self.height),
+            (self.x, self.y + self.height)
+        ]
+        for (x1, y1), (x2, y2) in pairwise(corners + [corners[0]]):
+            lines.append(Line(x1, y1, x2, y2, self.border_width, self.border_color))
+        return lines
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "x": self.x,
+            "y": self.y,
+            "width": self.width,
+            "height": self.height,
+            "border_width": self.border_width,
+            "border_color": self.border_color,
+            "bg_color": self.bg_color
+        }
 
 class Triangle:
     def __init__(self, x: int, y: int, radius: int, border_width: int, border_color: tuple, angle: float = 0):
@@ -247,6 +279,15 @@ class OSDManager:
         return text_id
     
 
+    def create_rectangle(self, x: int, y: int, width: int, height: int, border_width: int, border_color: Tuple[float, float, float, float], bg_color: Optional[Tuple[float, float, float, float]] = None, enable: bool = False, rectangle_id: Optional[str] = None) -> str:
+        if rectangle_id is None:
+            rectangle_id = self._generate_id()
+        self.elements[rectangle_id] = {
+            "type": "rectangle",
+            "object": Rectangle(x, y, width, height, border_width, border_color, bg_color),
+            "enable": enable
+        }
+        return rectangle_id
  
     
     def create_symbol(self, symbol: str,
@@ -369,8 +410,40 @@ class OSDManager:
 
             return triangle_id
 
-        return self.create_triangle(x, y, radius, line_width, line_color, angle, timeout, triangle_id)
-    
+    def upsert_rectangle(self,
+                         rectangle_id: Optional[str] = None,
+                         x: Optional[int] = None,
+                         y: Optional[int] = None,
+                         width: Optional[int] = None,
+                         height: Optional[int] = None,
+                         border_width: Optional[int] = None,  
+                         border_color: Optional[Tuple[float, float, float, float]] = None,
+                         bg_color: Optional[Tuple[float, float, float, float]] = None,
+                         enable: Optional[bool] = None) -> str:
+        """ Update or create a rectangle with the given parameters. """
+        # logger.debug(f"upsert_rectangle: {rectangle_id}, {x}, {y}, {width}, {height}, {border_width}, {border_color}, {bg_color}, {enable}")
+        if rectangle_id is not None and rectangle_id in self.elements and self.elements[rectangle_id]["type"] == "rectangle":
+            if x is not None:
+                self.elements[rectangle_id]["object"].x = x
+            if y is not None:
+                self.elements[rectangle_id]["object"].y = y
+            if width is not None:
+                self.elements[rectangle_id]["object"].width = width
+            if height is not None:
+                self.elements[rectangle_id]["object"].height = height
+            if border_width is not None:
+                self.elements[rectangle_id]["object"].border_width = border_width
+            if border_color is not None:
+                self.elements[rectangle_id]["object"].border_color = border_color
+            if bg_color is not None:
+                self.elements[rectangle_id]["object"].bg_color = bg_color
+            if enable is not None:
+                self.elements[rectangle_id]["enable"] = enable
+
+            return rectangle_id
+
+        return self.create_rectangle(x, y, width, height, border_width, border_color, bg_color, enable, rectangle_id)
+
 
     def upsert_symbol(self,
                       symbol_id: Optional[str] = None,
@@ -574,4 +647,5 @@ class OSDManager:
         return [element["object"].to_dict() for element in self.elements.values() if (element["type"] == "text" and element["visible"] == True)]
 
     def get_all_symbols_as_dicts(self) -> List[Dict]:
-        return [element["object"].to_dict() for element in self.elements.values() if (element["type"] == "symbol" and element["visible"] == True)]
+    def get_all_rectangles_as_dicts(self) -> List[Dict]:
+        return [element["object"].to_dict() for element in self.elements.values() if ((element["type"] == "rectangle") and element["enable"])]
