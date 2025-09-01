@@ -811,7 +811,7 @@ class PipelineManager:
                             if text_dicts[i]['alignment'] is not None:
                                 x_off = calculate_text_offset(text_dicts[i]["text"], text_dicts[i]["font_size"], text_dicts[i]['alignment'])
                             
-                            text_param.x_offset = text_dicts[i]["x"]# + x_off
+                            text_param.x_offset = text_dicts[i]["x"] + x_off
                             text_param.y_offset = text_dicts[i]["y"]
                             text_param.font_params.font_name = text_dicts[i]["font_name"]
                             text_param.font_params.font_size = text_dicts[i]["font_size"]
@@ -824,37 +824,46 @@ class PipelineManager:
                 symbols = osd_manager.get_all_symbols_as_dicts()
                 symbol_display_metas = [pyds.nvds_acquire_display_meta_from_pool(batch_meta) for _ in range(len(symbols) % 16 )]  # Max 16 elements per display meta
                 
-                for idx, symbol in enumerate(symbols):
-                    symbol_meta = symbol_display_metas[idx // 16]
-                    if idx % 16 == 0:
-                        symbol_meta.num_labels = 16
-                    text_params = symbol_meta.text_params[idx % 16]
-                    text_params.display_text = symbol["symbol"]
-                    text_params.x_offset = symbol["x"]
-                    text_params.y_offset = symbol["y"]
-                    text_params.font_params.font_name = symbol["font_name"]
-                    text_params.font_params.font_size = symbol["font_size"]
-                    text_params.font_params.font_color.set(*symbol["font_color"])
-                    text_params.set_bg_clr = 1
-                    text_params.text_bg_clr.set(*symbol["bg_color"])
+                if len (symbols) > 0:
+                    
+                    try: 
+                        for idx, symbol in enumerate(symbols):
+                            symbol_meta = symbol_display_metas[idx // 16]
+                            if idx % 16 == 0:
+                                symbol_meta.num_labels = 16
 
-                for meta in symbol_display_metas:
-                    pyds.nvds_add_display_meta_to_frame(frame_meta, meta)
-                
+                            text_params = symbol_meta.text_params[idx % 16]
+                            text_params.display_text = symbol["symbol"]
+                            text_params.x_offset = symbol["x"]
+                            text_params.y_offset = symbol["y"]
+                            text_params.font_params.font_name = symbol["font_name"]
+                            text_params.font_params.font_size = symbol["font_size"]
+                            text_params.font_params.font_color.set(*symbol["font_color"])
+                            text_params.set_bg_clr = 1
+                            text_params.text_bg_clr.set(*symbol["bg_color"])
+
+                        for meta in symbol_display_metas:
+                            pyds.nvds_add_display_meta_to_frame(frame_meta, meta)
+                    except Exception as e:
+                        logger.error(f"Unable to display symbol. \nError: {type(e)}: {e}")
+
+
                 lines = osd_manager.get_all_lines_as_dicts()
                 if len(lines) > 0:
+                    try:
+                        display_meta.num_lines = len(lines)
 
-                    display_meta.num_lines = len(lines)
-                    
-                    for i in range(display_meta.num_lines):
-                        line_params = display_meta.line_params[i]
-                        line_params.x1 = lines[i]['x1']
-                        line_params.y1 = lines[i]['y1']
-                        line_params.x2 = lines[i]['x2']
-                        line_params.y2 = lines[i]['y2']
-                        line_params.line_width = lines[i]['line_width']
-                        line_params.line_color.set(*lines[i]['line_color'])
+                        for i in range(display_meta.num_lines):
+                            line_params = display_meta.line_params[i]
+                            line_params.x1 = lines[i]['x1']
+                            line_params.y1 = lines[i]['y1']
+                            line_params.x2 = lines[i]['x2']
+                            line_params.y2 = lines[i]['y2']
+                            line_params.line_width = lines[i]['line_width']
+                            line_params.line_color.set(*lines[i]['line_color'])
 
+                    except Exception as e:
+                        logger.error(f"Unable to display line. \nError: {type(e)}: {e}")
 
 
                 rectangles = osd_manager.get_all_rectangles_as_dicts()
