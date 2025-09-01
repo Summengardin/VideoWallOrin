@@ -113,7 +113,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     net-tools \
     iputils-ping \
     kmod \
-    ffmpeg \
     \
     # GStreamer and plugins
     gstreamer1.0-qt5 \
@@ -260,8 +259,13 @@ COPY /VisionController/data/fonts/ /usr/share/fonts/truetype/
 COPY /vapix-python /app/vapix-python
 RUN pip3 install --no-cache-dir -e /app/vapix-python
 
+# Install Visca Python
+# COPY /VISCA-IP_controller /app/VISCA-IP-controller
+# RUN pip3 install --no-cache-dir -e /app/VISCA-IP-controller
+
+
 # Set default environment variables
 ENV Z3_URI1=rtsp://10.1.3.71/stream-1.sdp 
 ENV Z3_URI2=rtsp://10.1.3.72/stream-1.sdp 
 ENV Z3_URI3=rtsp://10.1.3.73/stream-1.sdp 
-ENV AXIS_URI=rtsp://root:root@10.2.0.81/axis-media/media.amp?streamprofile=stream-1 
+ENV AXIS_URI=rtsp://root:root@10.1.3.70/axis-media/media.amp?streamprofile=stream-1 

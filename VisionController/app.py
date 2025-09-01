@@ -9,6 +9,7 @@ import multiprocessing as mp
 import sys
 import importlib.util
 from urllib.parse import urlparse
+from typing import Optional
 
 import gi
 gi.require_version('Gst', '1.0')
@@ -22,9 +23,8 @@ from VisionController.libs.gst.pipeline_manager import PipelineManager
 from VisionController.libs.mqtt.mqtt_client import MQTTClient
 from VisionController.libs.mqtt.mqtt_helper import load_mqtt_topics
 from VisionController.libs.utils import index_dataclass, parse_config, find_digits_in_string
-from VisionController.libs.camera import Camera
-from VisionController.libs.vw_types import Source, SourceType
-
+from VisionController.libs.vw_types import Source, SourceType, Camera
+from VisionController.libs.factories import CameraFactory
 
 if not Gst.is_initialized():
     Gst.init(None)
@@ -39,9 +39,8 @@ class App():
         self.mqtt_config = self.config['mqtt']
         self.pipeline_config = self.config['pipeline']
         self.general_config = self.config['general']
-        self.camera_providers = self.config['camera_providers']
-
-        logger.debug(f"Camera providers: {self.camera_providers}")  
+        self.camera_factory = CameraFactory()
+        self.camera_factory.load_providers_from_config_file(self.config_file)
 
         self.command_queue = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=4)
@@ -52,40 +51,32 @@ class App():
 
 
         self.pipeline_manager = PipelineManager(self.pipeline_config)
-
-        # Store camera status using multiprocessing manager
-        self.manager = mp.Manager()
-        self.camera_status = self.manager.dict()
-        self.camera_uris = self.manager.dict()
+      
 
         self.cameras = {}
-        self.cameras['test'] = Camera(id = "Test", ip="test", type="Test", width=1920, height=1080, framerate=60)
-        self.cameras['test'].provider = self.camera_providers.get(self.cameras['test'].type, None)
-        self.cameras['placeholder'] = Camera(id = "Placeholder", ip="test", type="Test", width=1920, height=1080, framerate=60)
-        self.cameras['placeholder'].provider = self.camera_providers.get(self.cameras['test'].type, None)
+        self.cameras['Test'] = Camera(id = "Test", ip="test", type="Test", width=1920, height=1080, framerate=60)
+        self.cameras['Placeholder'] = Camera(id = "Placeholder", ip="test", type="Test", width=1920, height=1080, framerate=60)
 
-
-        # Store desired source configurations
         self.desired_sources = {}
-
 
         self._test_zoom_dir = 1
 
-
-        # Store thread references
+        # Thread references
         self.pipeline_thread = None
         self.handler_thread = None
         self.mqtt_thread = None
         self.monitor_thread = None
         self.monitor_stop_event = None
 
-        # Store process references
+        # Camera monitoring
         self.monitor_stop_event = threading.Event()
-        self.camera_monitor_stop_event = mp.Event()  # multiprocessing Event
+        self.camera_monitor_stop_event = mp.Event()
 
-        # Add disconnect tracking
-        self.disconnect_counters = self.manager.dict()  # Track disconnect counts
-        self.disconnect_timestamps = self.manager.dict()  # Track when disconnects occur
+        self.manager = mp.Manager()
+        self.camera_status = self.manager.dict()
+        self.camera_uris = self.manager.dict()
+        self.disconnect_counters = self.manager.dict()
+        self.disconnect_timestamps = self.manager.dict() 
         self.max_disconnects = 5  # Maximum number of disconnects allowed
         self.disconnect_window = 20  # Time window in seconds (5 minutes)
 
@@ -179,8 +170,62 @@ class App():
                 if topic_split[2] == 'VisionController0':
                     self._handle_vision_controllers_message(topic_split, payload)
             elif topic_split[1] == 'Cameras':
+                logger.debug(f"Handling camera message: {topic}: {payload}")
                 self._handle_cameras_message(topic_split, payload)
-            
+
+    def _handle_source_command(self, source_id: int, payload: Optional[str]) -> None:
+        """
+        Handle `subcommand == "Source"`: assign a camera to a source slot and (re)build the bin.
+
+        - Picks the camera by label (`payload`)
+        - If camera is offline/missing, falls back to 'test' placeholder
+        - Builds the Gst.Bin using CameraFactory
+        - Passes the prebuilt bin to PipelineManager (which links & syncs)
+        """
+        source_label = (payload or "").strip() or "Placeholder"
+
+        # Create/obtain a source slot object if your structure needs it
+        try:
+            src_slot = self.pipeline_manager.sources[source_id]
+        except (KeyError, IndexError):
+            logger.error(f"Invalid source_id {source_id}; no such source slot")
+            return
+
+        old_label = src_slot.name
+        if old_label == source_label:
+            logger.debug(f"Source {source_id} already bound to '{source_label}'; no change")
+            return
+
+        logger.debug(f"Source {source_id}: {old_label} → {source_label}")
+        src_slot.name = source_label
+
+        self.desired_sources[source_id] = source_label
+
+        # Resolve target camera (or placeholder)
+        cam = self.cameras.get(source_label)
+        if cam is None:
+            logger.warning(f"Camera '{source_label}' not found; using placeholder")
+            use_cam = self.cameras.get("Test")
+            if use_cam is None:
+                logger.error("No placeholder camera 'Test' configured; aborting")
+                return
+        else:
+            self.camera_uris[source_label] = cam.uri
+
+            is_online = self.camera_status.get(cam.id, False)
+            use_cam = cam if is_online else self.cameras.get("Test", cam)
+            if not is_online:
+                logger.debug(f"Camera '{cam.id}' offline → using placeholder for bin build")
+
+        self._add_camera_source(source_id, use_cam)
+        logger.debug(f"Adding source {source_id} with camera {use_cam.id} ({use_cam.type})")
+
+        # Update slot metadata (nice to have)
+        src_slot.camera = use_cam
+        src_slot.type = use_cam.type or "Placeholder"
+        src_slot.ip = use_cam.ip or f"Source{source_id}"
+
+        logger.info(f"Source {source_id} now set to camera '{use_cam.id}' (type={use_cam.type})")
 
     def _handle_vision_controllers_message(self, topic_split, payload):
         command = topic_split[3]
@@ -205,89 +250,9 @@ class App():
             subcommand = topic_split[4]
         except IndexError:
             subcommand = ""
-        # subcommand = ""
-
-        # Tile01 = {"Source":"","Brightness":2.98246E-1,"Zoom":0E0,"OSD":"{\"OSD1\":\"{\\\"text\\\":\\\"\\\",\\\"font_name\\\":\\\"Noto Serif Bold\\\",\\\"font_size\\\":\\\"18\\\",\\\"font_color\\\":\\\"1.0,1.0,1.0,1.0\\\",\\\"bg_color\\\":\\\"0.0,0.0,0.0,0.6\\\",\\\"pos_x\\\":\\\"0\\\",\\\"pos_y\\\":\\\"0\\\",\\\"timeout\\\":\\\"0\\\",\\\"visible\\\":false}\",\"OSD2\":\"{\\\"text\\\":\\\"\\\",\\\"font_name\\\":\\\"…
-        # payload = payload.replace("\\\\", "")
-
-        
-
-        # payload = json.loads(payload)
-        
-
-        
-
-        
 
         if subcommand == 'Source':
-            source_label = payload
-
-            if source_label is None or source_label == "":
-                source_label = "Placeholder"
-
-            # New source?
-            if self.pipeline_manager.sources[source_id].cam_id != source_label:
-                logger.debug(f"Old source: {self.pipeline_manager.sources[source_id].cam_id}  -->   New source: {source_label}")
-
-                self.desired_sources[source_id] = source_label
-
-                source = self.pipeline_manager.sources[source_id]
-                if source is None:
-                    source = Source(id=source_id, cam_id=source_label)
-
-                self.pipeline_manager.sources[source_id].cam_id = source_label
-                
-                # Assign Camera to source
-                if self.cameras.get(source_label, None) is not None:
-                    self.camera_uris[source.cam_id] = self.cameras[source.cam_id].uri
-                    source.camera = self.cameras[source.cam_id] 
-                    
-                try: # Try add new source to pipeline
-                    logger.debug(f"Adding new source")
-                    if self.camera_status.get(source.cam_id, False):
-                        self.pipeline_manager.add_source(source_id, camera=self.cameras[source.cam_id])
-                    else:
-                        logger.debug(f"Camera {source.cam_id} is not available, adding placeholder source")
-                        self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
-                except KeyError as e:
-                    logger.error(f"No camera with that id ({source.cam_id}). Could not find camera: {e}")
-
-                    logger.debug(f"Adding placeholder source")
-                    self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
-                except Exception as e:
-                    logger.error(f"Could not add source {source_id}. {type(e).__name__}: {e}")
-                    logger.debug(f"Adding placeholder source")
-                    self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
-
-
-                try: # Try get control module for camera
-                    source.provider = self.camera_providers.get(source.type, None)
-
-                    if source.provider is not None:
-                        module_path = source.provider.get("controller_module_path")
-                        module_name = module_path.split("/")[-1].split(".")[0:-1][0]
-
-                        if module_name in sys.modules:
-                            control_module = sys.modules[module_name]
-                        else:
-                            spec = importlib.util.spec_from_file_location(module_name, module_path)
-                            control_module = importlib.util.module_from_spec(spec)
-                            spec.loader.exec_module(control_module)
-                            sys.modules[module_name] = control_module
-
-                            logger.debug(f"Imported module \"{module_name}\" for type \"{source.type}\", {module_path}") 
-
-                        source.control = control_module.CameraControl(source.camera)
-
-                        print(f"\n\n\nSet source.control to {source.control}")
-                    else:
-                        logger.info(f"No control provider for camera of type: {source.type}")
-                except Exception as e:
-                    logger.error(f"Could not import control module for type \"{source.type}\": {e}")
-                    
-                
-                self.pipeline_manager.sources[source_id] = source
-        
+            self._handle_source_command(source_id, payload)
 
         elif subcommand == 'OSD':
             try:
@@ -302,7 +267,6 @@ class App():
                 logger.error(f"Could not load OSD data: {e}")
                 return
 
-
         elif subcommand == "ZoomSpeed":
             try:
                 zoom_speed = float(payload)
@@ -310,11 +274,11 @@ class App():
                 logger.error(f"Wrong type provided as zoom speed (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
-                control = self.pipeline_manager.sources[source_id].control
-                control.continuous_zoom(zoom_speed)
+                control = self.pipeline_manager.sources[source_id].camera.control
+                if control is not None:
+                    control.continuous_zoom(zoom_speed)
             except Exception as e:
                 logger.error(f"Could not initiate continuous zoom for Source {source_id}. \nError: {e}")
-
 
         elif subcommand == "PanSpeed":
             try:
@@ -323,8 +287,9 @@ class App():
                 logger.error(f"Wrong type provided as pan speed (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
-                control = self.pipeline_manager.sources[source_id].control
-                control.continuous_pan(pan_speed)
+                control = self.pipeline_manager.sources[source_id].camera.control
+                if control is not None:
+                    control.continuous_pan(pan_speed)
             except Exception as e:
                 logger.error(f"Could not initiate continuous pan for Source {source_id}. \nError: {e}")
     
@@ -335,11 +300,11 @@ class App():
                 logger.error(f"Wrong type provided as tilt speed (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
-                control = self.pipeline_manager.sources[source_id].control
-                control.continuous_tilt(tilt_speed)
+                control = self.pipeline_manager.sources[source_id].camera.control
+                if control is not None:
+                    control.continuous_tilt(tilt_speed)
             except Exception as e:
                 logger.error(f"Could not initiate continuous tilt for Source {source_id}. \nError: {e}")
-
 
         elif subcommand == "Brightness":
             try:
@@ -348,138 +313,13 @@ class App():
                 logger.error(f"Wrong type provided as brightness (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
-                control = self.pipeline_manager.sources[source_id].control
-                control.set_brightness(brightness)
+                control = self.pipeline_manager.sources[source_id].camera.control
+                if control is not None:
+                    control.set_brightness(brightness)
             except Exception as e:
                 logger.error(f"Could not set brightness for Source {source_id}. \nError: {e}")
-
-
-
         else:
             logger.warning(f"Tile-subcommand \"{subcommand}\" not assigned any logic yet")
-
-            
-            
-
-            # ptz_data = payload.get('PTZ', {})
-
-            # if isinstance(ptz_data, str):
-            #     ptz_data = json.loads(ptz_data)
-
-            # pan_speed = ptz_data.get('PanSpeed', 0)
-            # tilt_speed = ptz_data.get('TiltSpeed', 0)
-            # zoom_speed = ptz_data.get('ZoomSpeed', 0)
-
-
-            # if source.control is not None:
-            #     try:
-            #         logger.debug(f"Setting PTZ control: {pan_speed}, {tilt_speed}, {zoom_speed}")
-            #         print(f"Setting PTZ control: {pan_speed}, {tilt_speed}, {zoom_speed}")
-            #         source.control.ptz.continuous_pantilt(pan_speed=pan_speed*100, tilt_speed=tilt_speed*100)
-            #         source.control.continuous_zoom(zoom_speed=zoom_speed)
-
-
-            #     except Exception as e:
-            #         logger.error(f"Could not set PTZ control: {e}")
-            # else:
-            #     logger.debug(f"No PTZ control for {source.cam_id}")
-
-    
-            # osd_data = payload.get('OSD', {})
-
-            # if isinstance(osd_data, str):
-            #     # It's a JSON string → decode it
-            #     osd_data = json.loads(osd_data)
-            # print (f"\n\n\n {osd_key}: {osd_value} \n\n\n")
-            # for osd_key, osd_value in osd_data.items():
-            #     if osd_key.startswith("OSD"):
-            #         # osd = payload.get('OSD')
-            #         osd = json.loads(osd_value)
-            #         self.pipeline_manager.osd_managers[source_id].upsert_text_from_dict(osd, osd_key)
-
-            
-            # source.width = int(payload.get('Width', source.width)) if 'Width' in payload else source.width
-            # source.height = int(payload.get('Height', source.height)) if 'Height' in payload else source.height
-            # source.framerate = float(payload.get('Framerate', source.framerate)) if 'Framerate' in payload else source.framerate
-            # source.format = payload.get('Format', source.format) if 'Format' in payload else source.format
-
-        
-        
-        # print(self.pipeline_manager.sources)
-
-        # if subcommand == 'Source':
-        #     try:
-        #         camera_index = find_digits_in_string(payload)
-        #     except ValueError:
-        #         camera_index = 0
-        #     # self.pipeline_manager.sources[source_id].camera = self.pipeline_manager.cameras[camera_index]
-
-        #     self.pipeline_manager.sources[source_id].cam_id = payload
-        # elif subcommand == 'Enable':
-        #     self.pipeline_manager.sources[source_id].enabled = int(payload) > 0
-        #     if int(payload) > 0:
-            
-        #         try:
-        #             bin = self.source_manager.get_source_bin()
-        #             cam_id = self.pipeline_manager.sources[source_id].cam_id
-                    
-        #             success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,), kwargs={'camera': self.cameras[cam_id]})
-        #             if not success:
-        #                 logger.error(f"Adding source {source_id} timed out")
-        #                 success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
-        #                 if not success:
-        #                     logger.error(f"Adding placeholder source {source_id} timed out")
-                    
-
-        #             self.pipeline_manager.osd_manager[source_id].upsert_text(f"{self.pipeline_manager.sources[source_id].cam_id} - {self.pipeline_manager.sources[source_id].name}", "upper left", 0, 0, None, 18)
-        #             self.pipeline_manager.osd_manager[source_id].upsert_text(f"{self.pipeline_manager.sources[source_id].ip}", "upper right", 1920, 0, 'r', 18)
-
-
-
-
-        #         except Exception as e:
-        #             logger.error(f"Could not add source {source_id}. Error: {e}")
-        #             success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
-        #             if not success:
-        #                 logger.error(f"Adding placeholder source {source_id} timed out")
-                    
-        #     else:
-        #         try:
-        #             success = self._run_with_timeout(self.pipeline_manager.remove_source, args=(source_id,))
-        #             if not success:
-        #                 logger.error(f"Removing source {source_id} timed out")
-        #             success = self._run_with_timeout(self.pipeline_manager.add_source, args=(source_id,))
-        #             if not success:
-        #                 logger.error(f"Adding placeholder source {source_id} timed out")
-        #         except Exception as e:
-        #             logger.error(f"Could not stop releasing source {source_id}")
-
-        # elif subcommand == 'Zoom':
-        #     value = float(payload)
-
-        #     self._run_with_timeout(self._update_source_feature, args=(source_id, 'zoom'), kwargs={'value': value})
-        #     self.pipeline_manager.osd_manager[source_id].upsert_text(f"Zoom: {value:.2f}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
-        #     self.pipeline_manager.osd_manager[source_id].upsert_triangle("viewport", 1920//2, 1080//2, 50+600*float(payload), 10, (1.0, 1.0, 1.0, 1.0), -90, 2)
-
-
-        # elif subcommand == 'Exposure':
-        #     value = float(payload)
-
-        #     self._run_with_timeout(self._update_source_feature, args=(source_id, 'exposure_time'), kwargs={'value': value})
-        #     self.pipeline_manager.osd_manager[source_id].upsert_text(f"Exposure Time: {value:.2f}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
-
-        # elif subcommand == 'ExposureAuto':
-        #     value = int(payload)
-
-        #     self._run_with_timeout(self._update_source_feature, args=(source_id, 'exposure_time_auto'), kwargs={'value': value})
-        #     self.pipeline_manager.osd_manager[source_id].upsert_text(f"Exposure Auto: {value}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
-
-        # elif subcommand == 'Gain':
-        #     value = float(payload)
-
-        #     self._run_with_timeout(self._update_source_feature, args=(source_id, 'gain'), kwargs={'value': value})
-        #     self.pipeline_manager.osd_manager[source_id].upsert_text(f"Gain: {value:.2f}", "feature", 940, 980, 'c', 36, (1.0, 1.0, 1.0, 1.0), (0, 0, 0, 0.6), 2)
-
 
     def _update_source_feature(self, source_id: int, feature, value):
         source = self.pipeline_manager.sources[source_id]
@@ -580,7 +420,14 @@ class App():
         camera.ip = parsed.hostname
         camera.name = payload.get('DisplayName', camera.name)
         camera.type = payload.get('Type', camera.type)
-        camera.provider = self.camera_providers.get(camera.type, None)
+        camera.control = None
+        try:
+            camera.control = self.camera_factory.create_camera_control(camera)
+        except KeyError as e:
+            logger.error(f"Camera type '{camera.type}' not registered in provider registry: {e}")
+        except ImportError as e:
+            logger.error(f"Failed to import camera control for type '{camera.type}': {e}")
+        
         camera.width = int(payload.get('Width', camera.width))
         camera.height = int(payload.get('Height', camera.height))
         camera.framerate = float(payload.get('Framerate', camera.framerate))
@@ -634,6 +481,9 @@ class App():
               '-show_entries', 'stream=codec_type',
               '-of', 'default=noprint_wrappers=1:nokey=1']
         
+        if uri == "test":
+            return True
+
         try:
             subprocess.run(
                 cmd,
@@ -665,18 +515,20 @@ class App():
         n_workers = sum(1 for cid, uri in self.camera_uris.items()
                         if cid != "test" and uri)
 
-        # ❶ the pool is born once, lives for the whole method
+        self.camera_status['Test'] = True  # Always keep 'test' camera online
+        self.camera_status['Placeholder'] = True  # Always keep 'placeholder' camera online
+
         with ThreadPoolExecutor(max_workers=max(1, n_workers)) as executor:
             while not self.camera_monitor_stop_event.is_set():
                 try:
-                    # ❷ schedule one task per live camera URI
+                    # One task per live camera URI
                     futures = {
                         executor.submit(self._check_rtsp_feed, uri): cam_id
                         for cam_id, uri in self.camera_uris.items()
                         if cam_id != "test" and uri
                     }
-
-                    # ❸ collect results; update dict from *this* thread only
+                    
+                    # Collect results; update dict from *this* thread only
                     for fut in as_completed(futures):
                         cam_id = futures[fut]
                         try:
@@ -709,7 +561,7 @@ class App():
                             logger.warning("Camera %s raised %s", cam_id, exc)
                             self.camera_status[cam_id] = False
 
-                    # ❹ periodic debug print
+                    # Periodic debug print
                     run_counter += 1
                     if run_counter >= 10:
                         logger.debug("Camera status: %s", self.camera_status)
@@ -726,72 +578,120 @@ class App():
                     if self.camera_monitor_stop_event.wait(5):
                         break
 
-        logger.info("Camera monitor process stopped")
+        logger.info("Camera monitor process stopped")   
+
+    def _add_placeholder(self, source_id: int) -> bool:
+        """Swap a source slot to a placeholder bin."""
+        placeholder_cam = self.cameras.get("test")
+        try:
+            # bin_obj=None => PipelineManager creates its own placeholder (or you can
+            # call your placeholder factory here and pass the bin explicitly)
+            return self.pipeline_manager.add_source(source_id, bin_obj=None, camera=None)
+        except Exception as e:
+            logger.error("Failed to add placeholder at slot %s: %s", source_id, e)
+            return False
 
 
+    def _add_camera_source(self, source_id: int, cam) -> bool:
+        """Build a provider bin for `cam` and hand it to the pipeline."""
+        try:
+            bin_obj = self.camera_factory.create_source_bin(source_id, cam)
+            # bin_obj = create_source_bin(source_id, cam)
+        except Exception as e:
+            logger.error(f"Factory failed for {cam.id} ({cam.type}): {e}")
+            self._add_placeholder(source_id)
+            return False
+        
+        Gst.debug_bin_to_dot_file(bin_obj, Gst.DebugGraphDetails.ALL, f"source_{source_id}_bin_{cam.type}")
 
-    def _monitor_sources(self):
-        """Monitor sources for disconnections and attempt to reconnect them."""
+        try:
+            return self.pipeline_manager.add_source(source_id, bin_obj=bin_obj, camera=cam)
+            # return self.pipeline_manager.add_source_()
+        except Exception as e:
+            logger.error(f"Pipeline refused bin for slot {source_id} ({cam.id}): {e}")
+            return False
+
+
+    def _monitor_sources(self) -> None:
+        """Monitor sources for disconnections and reconnect them using the CameraFactory."""
+        # Buffer/counter for missing camera config/URI messages
+        missing_cam_log_counters = {}
+        missing_cam_log_interval = 25  # Only log every 25 cycles (~5s if 0.2s per cycle)
+
         while not self.monitor_stop_event.is_set():
             try:
                 for source_id, source in enumerate(self.pipeline_manager.sources):
-                    desired_cam_id = self.desired_sources.get(source_id, None)                    
-                    if desired_cam_id is None:
+                    desired_cam_id = self.desired_sources.get(source_id)
+                    if not desired_cam_id:
                         continue
 
-                    current_cam_id = source.cam_id
+                    desired_cam = self.cameras.get(desired_cam_id)
+                    counter = missing_cam_log_counters.get(desired_cam_id, 0)
 
-                    # Skip if current source is alive and is active (not a placeholder)
-                    if self.camera_status.get(desired_cam_id, False) and source.active:
+                    if desired_cam is None:
+                        # If desired camera is not configured, log it and swap to placeholder
+                        if counter == 0:
+                            logger.error(f"No camera config for {desired_cam_id}")
+                        counter = (counter + 1) % missing_cam_log_interval
+                        missing_cam_log_counters[desired_cam_id] = counter
+                        if source.type not in {"Placeholder", "Test"}:
+                            _ = self._add_placeholder(source_id)
+                        continue
+                
+                    elif desired_cam_id in {"Test", "Placeholder"}:
+                        continue
+                    
+                    elif desired_cam.uri is None:
+
+                        if counter == 0:
+                            logger.error(f"No URI for {desired_cam_id}")
+                        counter = (counter + 1) % missing_cam_log_interval
+                        missing_cam_log_counters[desired_cam_id] = counter
+                        if source.type not in {"Placeholder", "Test"}:
+                            _ = self._add_placeholder(source_id)
                         continue
 
-                    desired_camera = self.cameras.get(desired_cam_id)
-                    if desired_camera and desired_camera.uri:
-                        # Check if the camera is available using the camera status
-                        if self.camera_status.get(desired_cam_id, False):
-                            logger.info(f"Camera {desired_camera.ip} is available, attempting to connect")
-                            
-                            # Remove the current source
-                            self.pipeline_manager.remove_source(source_id)
-                            
-                            try:
-                                # Try to add the desired source
-                                success = self.pipeline_manager.add_source(source_id, camera=desired_camera)
-                                if success:
-                                    logger.info(f"Pipeline source {source_id} connected with {desired_camera.ip}")
-                                else:
-                                    logger.error(f"Failed to connect source {source_id} to {desired_camera.ip}")
-                                    # Add placeholder if connection failed
-                                    self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
-                            except Exception as e:
-                                logger.error(f"Error connecting source {source_id}: {e}")
-                                # Add placeholder if connection failed
-                                self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
-                        else:
-                            # logger.debug(f"Camera {desired_camera.ip} is not available")
-                            # Only add placeholder if current source is not already a placeholder
-                            if source.type != "Placeholder" and source.type != "Test":
-                                self.pipeline_manager.remove_source(source_id)
-                                self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
                     else:
-                        logger.error(f"No camera configuration or URI found for {desired_cam_id}")
-                        # Add placeholder if no camera config found
-                        if source.type != "Placeholder" and source.type != "Test":
-                            self.pipeline_manager.remove_source(source_id)
-                            self.pipeline_manager.add_source(source_id, camera=self.cameras['test'])
+                        counter = 0
+                    
+                        missing_cam_log_counters[desired_cam_id] = counter
 
-                # Sleep for a short interval before next check
-                if self.monitor_stop_event.wait(0.2):  # Check every 0.5 seconds
+
+                    # If desired camera is online and the slot is already active for that camera, skip
+                    if self.camera_status.get(desired_cam_id, False) and source.active:
+                        if source.cam_id == desired_cam_id and source.type not in {"Placeholder", "Test"}:
+                            continue  # healthy and already on desired camera
+
+                    # Decide what to feed now
+                    cam_is_online = self.camera_status.get(desired_cam_id, False)
+                    if cam_is_online:
+                        logger.info(f"Camera {desired_cam.ip or desired_cam.id} is online; attempting (re)connect")
+                        ok = self._add_camera_source(source_id, desired_cam)
+                        if ok:
+                            logger.info(f"Slot {source_id} is now connected to {desired_cam.ip or desired_cam.id}")
+                            source.cam_id = desired_cam_id
+                            source.camera = desired_cam
+                            source.type = desired_cam.type
+                            source.name = desired_cam.ip or f"Source{source_id}"
+                            source.active = True
+                        else:
+                            logger.error(f"Failed to connect slot {source_id} to {desired_cam.ip or desired_cam.id}; falling back to placeholder")
+                            self._add_placeholder(source_id)
+                    else:
+                        # Camera offline: ensure slot shows placeholder (but don’t thrash if already placeholder/test)
+                        if source.type not in {"Placeholder", "Test"} or source.active:
+                            logger.debug(f"Camera {desired_cam_id} offline; swapping slot {source_id} to placeholder")
+                            self._add_placeholder(source_id)
+                            source.type = "Placeholder"
+                            source.active = False
+
+                # pacing
+                if self.monitor_stop_event.wait(0.2):  # ~5 Hz
                     break
 
             except Exception as e:
-                logger.error(f"Error in monitor thread: {e}")
-                if self.monitor_stop_event.wait(5):  # Sleep before retrying on error
+                logger.error("Error in monitor thread: %s", e)
+                if self.monitor_stop_event.wait(5.0):
                     break
 
         logger.info("Monitor thread stopped")
-
-
-
-
-    

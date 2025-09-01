@@ -9,7 +9,7 @@ import gi.overrides
 from gi.repository import Gst, GLib#, Aravis
 from itertools import pairwise
 from collections import OrderedDict
-from typing import Tuple
+from typing import Tuple, Optional, Any
 from dataclasses import dataclass 
 from enum import Enum
 from datetime import datetime
@@ -22,13 +22,12 @@ import threading
 import logging
 logger = logging.getLogger(__name__)
 
-from VisionController.libs.camera import Camera
 # from VisionController.libs.gst.source_bins import create_uridecodebin_source_bin, create_aravis_source_bin, create_videotestsrc_source_bin
 from VisionController.libs.cameras.placeholder_source_bin import create_source_bin as create_placeholder_source_bin
 from VisionController.libs.cameras.nvuri_source_bin import create_source_bin as create_nvuri_source_bin
 from VisionController.libs.utils import index_dataclass, scale, clamp, calculate_text_offset
 from VisionController.libs.material_symbols import material_symbols
-from VisionController.libs.vw_types import Source, SourceType
+from VisionController.libs.vw_types import Source, SourceType, Camera
 from VisionController.libs.gst.osd_manager import OSDManager
 
 if Gst.is_initialized() == False:
@@ -39,6 +38,7 @@ class PipelineManager:
     def __init__(self, config = None):
         self.ready = False
         self.window_close_callback = None
+        self.shutdown_callback = None
 
         self.config = config
         self._initiate_config()
@@ -65,34 +65,7 @@ class PipelineManager:
         self.pipeline_pause_because_last_source = False
         self.osd_frame_number = 0
         self.osd_text = ""
-        self.osd_text_dict = [
-            {
-                "text": "<Name of source>  <States>",
-                "x": 0,
-                "y": 200,
-                "font_size": 18,
-            },
-            {
-                "text": "Load: ",
-                "x": 1920//2,
-                "y": 200,
-                "font_size": 18,
-            },
-            {
-                "text": "<User set>",
-                "x": 1920 - 200,
-                "y": 200,
-                "font_size": 18,
-            },
-
-            {
-                "text": "<New setting> :  <Value>",
-                "x": 1920//2,
-                "y": 1080//2,
-                "font_size": 48,
-            },
-
-        ]
+        
         self.fps = 0
         self.last_fps_time = time.time()
 
@@ -123,7 +96,7 @@ class PipelineManager:
         if state_ret == Gst.StateChangeReturn.FAILURE:
             logger.critical("Unable to set the pipeline to the playing state")
             logger.info("Have you set the DISPLAY variable?     export DISPLAY=:0")
-            self.window_close_callback()
+            self.shutdown_callback()
             return
 
         GLib.timeout_add(10000, self._print_fps)
@@ -270,18 +243,21 @@ class PipelineManager:
         # self.nvinfer = Gst.ElementFactory.make("nvinfer", "inference")        
         self.tiler = Gst.ElementFactory.make("nvmultistreamtiler", "tiler")
         self.nvosd = Gst.ElementFactory.make("nvdsosd", "osd")
-        # self.nvconvertsink = Gst.ElementFactory.make("nvvideoconvert", "nvvid-convert-sink")
-        # self.sink = Gst.ElementFactory.make("xvimagesink", "sink")
-        self.sink = Gst.ElementFactory.make("nveglglessink", "sink")
+        self.sink_queue = Gst.ElementFactory.make("queue", "sink-queue")
+        self.nvconvertsink = Gst.ElementFactory.make("nvvideoconvert", "nvvid-convert-sink")
+        self.sink = Gst.ElementFactory.make("xvimagesink", "sink")
+        
+        # self.sink = Gst.ElementFactory.make("nveglglessink", "sink")
         # self.sink = Gst.ElementFactory.make("nvdrmvideosink", "sink")
        
 
         self.elements = OrderedDict({"streammux": self.streammux, 
                          "nvmultistreamtiler": self.tiler, 
                          "nvdsosd": self.nvosd, 
-                        #  "nvvideoconvert": self.nvconvertsink,
-                        #  "xvimagesink": self.sink})
-                         "nveglglessink": self.sink})
+                            "sink_queue": self.sink_queue,
+                         "nvvideoconvert": self.nvconvertsink,
+                         "xvimagesink": self.sink})
+                        #  "nveglglessink": self.sink})
                         #   "nvdrmvideosink": self.sink})
 
         # for element in self.elements:
@@ -293,6 +269,7 @@ class PipelineManager:
         for var_name, element in self.elements.items():
             if not element:
                 logger.error(f"Unable to create {var_name}")
+                self.shutdown_callback()
                 return
             self.pipeline.add(element)
 
@@ -317,6 +294,11 @@ class PipelineManager:
         self.tiler.set_property("height", self.height)
         self.tiler.set_property("nvbuf-memory-type", 0)
         self.tiler.set_property("gpu-id", 0)
+        
+        self.sink_queue.set_property("leaky", 2)  # Dropping old buffers
+        self.sink_queue.set_property("max-size-buffers", 1)
+        self.sink_queue.set_property("max-size-bytes", 0)
+        self.sink_queue.set_property("max-size-time", 0)
 
         self.sink.set_property("sync", False)
 
@@ -333,8 +315,7 @@ class PipelineManager:
         tiler_sink_pad = self.tiler.get_static_pad("sink")
         if not tiler_sink_pad:
             logger.warning("Unable to get Tiler sink pad")
-        else:            
-            # id = tiler_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_sink_pad_buffer_probe, None)
+        else:
             id = tiler_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_manager_probe, None)
             # self.tiler_probe_ids.append(id)
 
@@ -361,11 +342,8 @@ class PipelineManager:
             self.pipeline.set_state(Gst.State.PAUSED)
         
         bin = self.sources[source_id].bin
-        if self.sources[source_id].ip in self.active_source_ips:
-            logger.debug(f"Removing source {source_id} from active source IPs")
-            self.active_source_ips.remove(self.sources[source_id].ip)
 
-        logger.debug(f"Setting source {source_id} to NULL")
+        logger.debug(f"Setting source {source_id} to state: NULL")
         state_return = bin.set_state(Gst.State.NULL)
 
         if state_return == Gst.StateChangeReturn.FAILURE:
@@ -417,149 +395,113 @@ class PipelineManager:
         with self.source_lock:
             return self._remove_source_internal(source_id)
 
-    def add_source(self, source_id: int, camera: Camera = None, provider = None) -> bool:
+    def add_source(self, source_id: int, *, bin_obj: Optional[Any] = None, camera: Optional[Any] = None) -> bool:
         """
-        Add a source to the pipeline.
+        Add/replace a source at `source_id`.
 
         Args:
-            source_id (int): The ID of the source to add. If None, the first available source ID will be used.
-            camera (Camera, optional): The camera to add. If None, a placeholder source will be added.
+            source_id: Slot index (0..N-1).
+            bin_obj: A ready Gst.Bin (or None to use placeholder).
+            camera: Camera metadata for book-keeping / logging.
 
         Returns:
-            bool: True if the source was added successfully, False otherwise.
+            True if added & linked; False on failure.
         """
         with self.source_lock:
-            logger.debug(f"Add Source: source_id = {source_id}, camera = {camera}")
-            
+            logger.debug(f"Add Source: id={source_id}, camera={camera.id}")
+
             if self.pipeline is None or self.streammux is None:
+                logger.error("Pipeline or streammux not initialized.")
                 return False
 
-            if source_id is None:
-                try:
-                    source_id = index_dataclass(self.sources, "active", False)
-                except Exception as e:
-                    logger.warning("No free source id: %s", e)
-                    return False
-            
-            if source_id >= self.max_num_sources:
+            if not (0 <= source_id < self.max_num_sources):
                 raise IndexError("Source id out of range")
 
-            if (self.sources[source_id].type == "Placeholder" or self.sources[source_id].type == "Test") and (camera is None or camera.type == "Test") and self.sources[source_id].bin is not None:
-                logger.debug(f"Already a placeholder or test source at {source_id}, skipping")
-                return True
-
-            self.sources[source_id].active = False
-            self.sources[source_id].eos = False
-            self.sources[source_id].id = source_id
-
-            added_source = False
-
-            if camera is not None and camera.provider is not None:
-                self.sources[source_id].ip = camera.ip
-                self.sources[source_id].camera = camera
-                self.sources[source_id].type = camera.type
-
-                try:
-                    module_path = camera.provider.get("source_bin_path")
-                    module_name = module_path.split("/")[-1].split(".")[0:-1][0]
-
-                    if module_name in sys.modules:
-                        source_bin_module = sys.modules[module_name]
-                    else:
-                        spec = importlib.util.spec_from_file_location(module_name, module_path)
-                        source_bin_module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(source_bin_module)
-                        sys.modules[module_name] = source_bin_module
-                        logger.debug(f"Imported module \"{module_name}\" for type \"{camera.type}\", {module_path}") 
-
-                except ImportError as e:
-                    logger.error(f"Unable to import source module for type \"{camera.type}\": {e}")
-                    logger.debug("Adding placeholder source")
-                    
-                except AttributeError as e:
-                    logger.error(f"Unable to import source module for type \"{camera.type}\": {e}")
-                    logger.debug("Adding placeholder source")     
-
-                else:
-                    if camera.type == "Test":
-                        source_bin = create_placeholder_source_bin(source_id, camera)
-                        self.sources[source_id].active = False
-                        
-                    else:
-                        source_bin = source_bin_module.create_source_bin(source_id, camera)
-                        self.sources[source_id].active = True
-                    
-                    self.sources[source_id].name = camera.ip
-                    
-
-                    added_source = True
-            
-            if added_source == False:
-                logger.debug(f"No camera source provided, adding placeholder at source {source_id}")
-                source_bin = create_placeholder_source_bin(source_id, None)
-                self.sources[source_id].name = "Placeholder" + str(source_id)
-                self.sources[source_id].type = "Placeholder"
-
-            if not source_bin:
-                logger.error(f"Unable to create source bin for source {source_id}\n")
-                return False
-            
-            # Remove the current bin if it exists
-            if self.sources[source_id].bin is not None:
-                if not self._remove_source_internal(source_id):
+            # Create placeholder if no bin passed
+            if bin_obj is None:
+                logger.debug(f"No bin provided; creating placeholder for slot {source_id}")
+                bin_obj = create_placeholder_source_bin(source_id, camera)
+                if bin_obj is None:
+                    logger.error("Placeholder bin factory returned None")
                     return False
 
-            self.sources[source_id].bin = source_bin
+            # Remove current bin (if any)
+            current = self.sources[source_id]
+            if current.bin is not None:
+                if not self._remove_source_internal(source_id):
+                    logger.error(f"Failed to remove existing source at slot {source_id}")
+                    return False
 
-            logger.debug(f"Adding source {source_id} to pipeline")
-            self.num_sources += 1
-            self.pipeline.add(source_bin)
-            self.active_source_ips.append(self.sources[source_id].ip)
+            # Update source slot metadata
+            current.bin = bin_obj
+            current.id = source_id
+            current.eos = False
+            if camera is not None:
+                current.camera = camera
+                current.type = camera.type or "Unknown"
+                current.ip = camera.ip
+                current.name = camera.name or f"Source{source_id}"
+            else:
+                current.type = "Placeholder"
+                current.name = f"Placeholder{source_id}"
 
-            logger.debug(f"Added source {source_id} to pipeline")
-
-            # Link source bin to streammux. source_id decides pad, and therebye position in tiler
-            src_pad = source_bin.get_static_pad("src")
-            sink_pad = self.streammux.request_pad_simple(f"sink_{source_id}")
-
-            if not src_pad:
-                logger.error(f"Unable to get source pad from source bin {source_id}")
+            # Add bin to pipeline
+            try:
+                self.pipeline.add(bin_obj)
+            except Exception as e:
+                logger.error("pipeline.add(bin) failed: %s", e)
                 return False
-            if not sink_pad:   
-                logger.error(f"Unable to get sink pad \"sink_{source_id}\" from streammux")
+
+            # Link to streammux (sink_N)
+            src_pad = bin_obj.get_static_pad("src")
+            sink_pad = self.streammux.request_pad_simple(f"sink_{source_id}")
+            if not src_pad:
+                logger.error("No 'src' pad on source bin %s", source_id)
+                return False
+            if not sink_pad:
+                logger.error("No 'sink_%s' pad on streammux", source_id)
                 return False
 
             try:
-                ret = src_pad.link(sink_pad) == Gst.PadLinkReturn.OK
-                if not ret:
-                    logger.error(f"Unable to link source bin to streammux")
-                    return False
-            except Gst.LinkError as e:
-                logger.error(f"Unable to link source bin to streammux: {e}")
-                logger.debug(f"src_pad: {src_pad}, sink_pad: {sink_pad}")
+                ok = src_pad.link(sink_pad) == Gst.PadLinkReturn.OK
+            except Exception as e:
+                logger.error(f"Pad link failed: {e}")
+                return False
+            if not ok:
+                logger.error(f"Unable to link source bin {source_id} → streammux.sink_{source_id}")
                 return False
 
-            logger.debug(f"Linked source {source_id} to streammux")
-
-            # Add bus connection for RTSP sources
-            if self.sources[source_id].type != "Placeholder":
+            # Bus wiring for non-placeholder sources
+            if current.type not in {"Placeholder", "Test"}:
                 bus = self.pipeline.get_bus()
                 if bus:
                     bus.add_signal_watch()
                     bus.connect("message::error", self._handle_source_error, source_id)
-                else:
-                    logger.error(f"Unable to get pipeline bus for source {source_id}")
 
-            sync_return = source_bin.sync_state_with_parent()
-            logger.debug(f"Sync state with parent: {sync_return}")
-            if not sync_return:
-                logger.error("Unable to sync state with parent")
-                source_bin.set_state(Gst.State.NULL)
+            # Sync state
+            try:
+                sync_ok = bin_obj.sync_state_with_parent()
+            except Exception as e:
+                logger.error(f"sync_state_with_parent failed: {e}")
                 return False
-            
-            Gst.debug_bin_to_dot_file_with_ts(self.pipeline, Gst.DebugGraphDetails.ALL , "pipeline")
+            if not sync_ok:
+                try:
+                    bin_obj.set_state(Gst.State.NULL)
+                except Exception:
+                    pass
+                logger.error(f"Source {source_id} failed to sync with parent")
+                return False
 
-            return True
+            # Book-keeping
+            self.num_sources += 1
+            current.active = True
+
+            self.sources[source_id] = current
+            logger.debug(f"Source {source_id} added and linked")
+
+            Gst.debug_bin_to_dot_file(self.pipeline, Gst.DebugGraphDetails.ALL , "pipeline-after-add")
+
+            return True   
 
     def _update_features(self, camera_ip: str, features: dict):
         feature_str = " ".join([f"{key}={value}" for key, value in features.items()])
@@ -801,172 +743,6 @@ class PipelineManager:
         self.fps = delta
 
         return True
-    
-
-    
-    def _osd_sink_pad_buffer_probe(self, pad, info, user_data):
-        gst_buffer = info.get_buffer()
-        if not gst_buffer:
-            logger.warning("Unable to get GstBuffer ")
-            return
-        
-        self.osd_frame_number += 1
-
-        if self.osd_frame_number % 60 == 0:
-            self.osd_text = f"Frame numbers: {self.osd_frame_number}"
-
-        batch_text = ""
-            
-        batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
-        l_frame = batch_meta.frame_meta_list
-        global moving_x, moving_y
-        while l_frame is not None:
-
-            try:
-                frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
-            except StopIteration:
-                break
-
-            pad_index = frame_meta.pad_index
-            ntp_ts = frame_meta.ntp_timestamp
-            font_size = 18
-
-            
-            display_meta=pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-            display_meta.num_labels = 5 + len(self.osd_text_dict)
-            left_text_params = display_meta.text_params[0+len(self.osd_text_dict)]
-            left_text2_params = display_meta.text_params[1+ len(self.osd_text_dict)]
-            mid_text_params = display_meta.text_params[2+len(self.osd_text_dict)]
-            right_text_params = display_meta.text_params[3+len(self.osd_text_dict)]
-            setting_text_params = display_meta.text_params[4+len(self.osd_text_dict)]
-
-            # for i in range (0, len(self.osd_text_dict)):
-            #     display_meta.text_params[i].display_text = self.osd_text_dict[i]['text']
-
-                
-            #     display_meta.text_params[i].x_offset = self.osd_text_dict[i]['x']
-            #     display_meta.text_params[i].y_offset = self.osd_text_dict[i]['y']
-
-            #     display_meta.text_params[i].font_params.font_size = self.osd_text_dict[i]['font_size']
-            #     display_meta.text_params[i].font_params.font_name = "Noto Serif Bold"
-            #     display_meta.text_params[i].font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            #     display_meta.text_params[i].set_bg_clr = 1
-            #     display_meta.text_params[i].text_bg_clr.set(0.0, 0.0, 0.0, 0.6)                
-
-
-
-            left_text = f"{self.sources[frame_meta.source_id].name:<20}   |   | X |   |   |"
-            left_text_2 = f""
-            mid_text = f"{self.osd_text}"
-            right_text = f"Source: {self.sources[frame_meta.source_id].ip}"
-
-            setting_text = "No Camera"
-            if self.sources[frame_meta.source_id].camera:
-                setting_text = f"Zoom :   {self.sources[frame_meta.source_id].camera.zoom}"
-
-
-            left_text_params.display_text = left_text
-            left_text2_params.display_text = left_text_2
-            mid_text_params.display_text = mid_text
-            right_text_params.display_text = right_text
-            setting_text_params.display_text = setting_text
-
-            left_text_params.x_offset = 0
-            left_text_params.y_offset = 0
-
-            left_text2_params.x_offset = 0
-            left_text2_params.y_offset = font_size*2
-
-            mid_text_params.x_offset = (1920 - len(mid_text) * font_size) // 2
-            mid_text_params.y_offset = 0
-            
-            right_text_params.x_offset = 1920 - int(len(right_text) * font_size)
-            right_text_params.y_offset = 0
-
-            setting_text_params.x_offset = (1920 - int(len(setting_text) * font_size * 2) ) // 2
-            setting_text_params.y_offset = 1080 - 100
-
-
-        
-            left_text_params.font_params.font_name = "Noto Serif Bold"
-            left_text_params.font_params.font_size = font_size
-            left_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            left_text_params.set_bg_clr = 1
-            left_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
-
-            left_text2_params.font_params.font_name = "Noto Serif Bold"
-            left_text2_params.font_params.font_size = font_size
-            left_text2_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            left_text2_params.set_bg_clr = 1
-            left_text2_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
-
-            mid_text_params.font_params.font_name = "Noto Serif Bold"
-            mid_text_params.font_params.font_size = font_size
-            mid_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            mid_text_params.set_bg_clr = 1
-            mid_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
-
-            right_text_params.font_params.font_name = "Noto Serif Bold"
-            right_text_params.font_params.font_size = font_size
-            right_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            right_text_params.set_bg_clr = 1
-            right_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
-
-            setting_text_params.font_params.font_name = "Noto Serif Bold"
-            setting_text_params.font_params.font_size = font_size * 2
-            setting_text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-            setting_text_params.set_bg_clr = 1
-            setting_text_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
-
-
-            
-
-
-            # Draw triangle
-
-            display_meta.num_lines = 3
-            line_params_1 = display_meta.line_params[0]
-            line_params_2 = display_meta.line_params[1]
-            line_params_3 = display_meta.line_params[2]
-
-
-
-            # x1, y1 = 960 + moving_x, 400 + moving_y  # Top vertex
-            # x2, y2 = 860 + moving_x, 600 + moving_y  # Bottom left vertex
-            # x3, y3 = 1060 + moving_x, 600 + moving_y # Bottom right vertex
-            moving_x = int(math.sin(time.time()) * 200)
-            moving_y = int(math.cos(time.time()) * 200)
-            triangle_x, triangle_y = 1920//2 + moving_x, 1080//2 + moving_y
-            (x1, y1), (x2, y2), (x3, y3) = get_triangle_points(triangle_x, triangle_y, 100)
-
-            line_params_1.x1, line_params_1.y1 = x1, y1
-            line_params_1.x2, line_params_1.y2 = x2, y2
-            line_params_1.line_width = 10
-            line_params_1.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
-
-            line_params_2.x1, line_params_2.y1 = x2, y2
-            line_params_2.x2, line_params_2.y2 = x3, y3
-            line_params_2.line_width = 10
-            line_params_2.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
-
-            line_params_3.x1, line_params_3.y1 = x3, y3
-            line_params_3.x2, line_params_3.y2 = x1, y1
-            line_params_3.line_width = 10
-            line_params_3.line_color.set(1.0, 0.0, 0.0, 1.0)  # Red color
-
-
-
-
-
-            pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
-
-            try:
-                l_frame=l_frame.next
-            except StopIteration:
-                break
-    
-
-        return Gst.PadProbeReturn.OK
 
 
     def _osd_manager_probe(self, pad, info, user_data):
@@ -1145,6 +921,10 @@ class PipelineManager:
     def set_window_close_callback(self, callback):
         """Set a callback function to be called when window close is detected"""
         self.window_close_callback = callback
+
+    def set_shutdown_callback(self, callback):
+        """Set a callback function to be called when shutdown is detected"""
+        self.shutdown_callback = callback
 
     def start_monitoring(self):
         """Start periodic monitoring of sources."""

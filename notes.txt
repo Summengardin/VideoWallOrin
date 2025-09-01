@@ -183,3 +183,87 @@ batched-push-timeout=33333 max-batch-size=10 \
 drop-pipeline-eos=1 live-source=1 \
 uri-list=rtsp://10.1.3.73/stream-1.sdp,rtsp://10.1.3.72/stream-1.sdp,rtsp://10.1.3.71/stream-1.sdp,rtsp://root:root@10.1.3.81/axis-media/media.amp?streamprofile=stream-1 width=1920 height=1080 \
 ! nvmultistreamtiler ! nveglglessink
+
+
+
+# CDPLinux samples
+export AXIS_URI=rtsp://root:root@10.1.3.70/axis-media/media.amp?streamprofile=stream-1 \
+    AXIS_URI2=rtsp://root:root@10.1.3.80/axis-media/media.amp?streamprofile=stream-1 \
+    AXIS_URI3=rtsp://root:root@10.1.3.85/axis-media/media.amp?streamprofile=stream-1 \
+    Z3_URI1=rtsp://10.1.3.71/stream-1.sdp \
+    Z3_URI2=rtsp://10.1.3.72/stream-1.sdp \
+    Z3_URI3=rtsp://10.1.3.73/stream-1.sdp
+export IMAGE_URI=file:///app/VisionController/data/assets/image_placeholder.png
+
+sudo docker exec -it <container> "watch -n 0.5 /cuda/bin/nvidia-smi"
+
+gst-launch-1.0 \
+    uridecodebin uri=$AXIS_URI ! \
+    fakesink
+
+gst-launch-1.0 \
+    uridecodebin uri=$AXIS_URI ! \
+    ximagesink
+
+gst-launch-1.0 \
+    nvurisrcbin uri=$AXIS_URI ! \
+    fakesink
+
+gst-launch-1.0 \
+    nvurisrcbin uri=$AXIS_URI ! \
+    autovideosink sync=false
+
+gst-launch-1.0 \
+    nvurisrcbin uri=$AXIS_URI ! \
+    nveglglessink sync=false
+
+gst-launch-1.0 \
+    nvurisrcbin uri=$AXIS_URI ! \
+     m.sink_0 nvstreammux name=m batch-size=1 ! \
+    nvinfer config-file-path=/app/DeepStream-Yolo/config_infer_primary_yoloV11.txt ! \
+    nvdsosd ! \
+    nveglglessink sync=false
+
+gst-launch-1.0 \
+    rtspsrc location="$AXIS_URI" latency=0 ! \
+    rtph265depay ! h265parse ! \
+    nvv4l2decoder  num-extra-surfaces=2 ! \
+    nvinfer config-file-path=/app/DeepStream-Yolo/config_infer_primary_yoloV11.txt ! \
+    nvdsosd ! \
+    nveglglessink sync=false
+
+gst-launch-1.0 -e \
+    nvurisrcbin uri=$Z3_URI3 ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_0 \
+    nvurisrcbin uri=$AXIS_URI3 ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_1 \
+    nvurisrcbin uri=$AXIS_URI2 ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_2 \
+    nvurisrcbin uri=$AXIS_URI ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_3 \
+    nvstreammux name=mux batch-size=4 ! \
+    nvmultistreamtiler rows=2 columns=2 width=3840 height=2160 ! \
+    nveglglessink sync=false 
+
+gst-launch-1.0 -e \
+    nvurisrcbin uri=$IMAGE_URI file-loop=True ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_0 \
+    nvurisrcbin uri=$IMAGE_URI file-loop=True ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_1 \
+    nvurisrcbin uri=$IMAGE_URI file-loop=True ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_2 \
+    nvurisrcbin uri=$IMAGE_URI file-loop=True ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_3 \
+    nvstreammux name=mux batch-size=4 ! \
+    nvmultistreamtiler rows=2 columns=2 width=3840 height=2160 ! \
+    nveglglessink sync=false 
+
+gst-launch-1.0 -e \
+    uridecodebin uri=$IMAGE_URI ! nvvideoconvert ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_0 \
+    uridecodebin uri=$IMAGE_URI ! nvvideoconvert ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_1 \
+    uridecodebin uri=$IMAGE_URI ! nvvideoconvert ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_2 \
+    uridecodebin uri=$IMAGE_URI ! nvvideoconvert ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_3 \
+    nvstreammux name=mux batch-size=4 ! \
+    nvmultistreamtiler rows=2 columns=2 width=3840 height=2160 ! \
+    nveglglessink sync=false 
+
+gst-launch-1.0 -e \
+    videotestsrc ! nvvideoconvert ! nvv4l2h265enc ! h265parse ! nvv4l2decoder ! nvvideoconvert ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_0 \
+    videotestsrc ! nvvideoconvert ! nvv4l2h265enc ! h265parse ! nvv4l2decoder ! nvvideoconvert ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_1 \
+    videotestsrc ! nvvideoconvert ! nvv4l2h265enc ! h265parse ! nvv4l2decoder ! nvvideoconvert ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_2 \
+    videotestsrc ! nvvideoconvert ! nvv4l2h265enc ! h265parse ! nvv4l2decoder ! nvvideoconvert ! 'video/x-raw(memory:NVMM), format=(string)NV12' ! mux.sink_3 \
+    nvstreammux name=mux batch-size=4 ! \
+    nvmultistreamtiler rows=2 columns=2 width=3840 height=2160 ! \
+    nveglglessink sync=false 

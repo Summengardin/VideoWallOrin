@@ -6,26 +6,41 @@ general:
 
 camera_providers:
   Axis:
-    source_bin_path: "/app/VisionController/libs/cameras/nvuri_source_bin.py"
-    controller_module_path: "/app/VisionController/libs/cameras/vapix_control.py"
+    enabled: true
+    type: Axis
+    controller_file: "/app/VisionController/libs/cameras/vapix_control.py"
+    controller_class: "VapixControl"
+    source_bin_file: "/app/VisionController/libs/cameras/nvuri_source_bin.py"
+    source_bin_func: "create_source_bin"
+    kwargs: {}
+
   Test:
-    # source_bin_path: "/app/VisionController/libs/cameras/placeholder_source_bin.py"
-    source_bin_path: "/app/VisionController/libs/cameras/nvuri_source_bin.py"
-    controller_module_path: "/app/VisionController/libs/cameras/vapix_control.py"
+    enabled: true
+    type: Test
+    controller_file: ""
+    controller_class: ""
+    source_bin_file: "/app/VisionController/libs/cameras/placeholder_source_bin.py"
+    source_bin_func: "create_source_bin"
+    kwargs: {}
+
+  Placeholder:
+    enabled: true
+    type: Placeholder
+    controller_file: ""
+    controller_class: ""
+    source_bin_file: "/app/VisionController/libs/cameras/placeholder_source_bin.py"
+    source_bin_func: "create_source_bin"
+    kwargs: {}
+
   Z3:
-    # source_bin_path: "/app/VisionController/libs/cameras/nvuri_source_bin.py"
-    source_bin_path: "/app/VisionController/libs/cameras/nvuri_source_bin.py"
-    controller_module_path: "/app/VisionController/libs/cameras/vapix_control.py"
-  # Axis:
-  #   source_bin_path: "VisionController.libs.cameras.uri_source_bin"
-  #   controller_module_path: "VisionController.libs.cameras.vapix_control"
-  # Test:
-  #   # source_bin_path: "VisionController.libs.cameras.placeholder_source_bin"
-  #   source_bin_path: "VisionController.libs.cameras.nvuri_source_bin"
-  #   controller_module_path: "VisionController.libs.cameras.vapix_control"
-  # Z3:
-  #   source_bin_path: "VisionController.libs.cameras.nvuri_source_bin"
-  #   controller_module_path: "VisionController.libs.cameras.vapix_control"
+    enabled: true
+    type: Z3
+    controller_file: 
+    controller_class:
+    source_bin_file: "/app/VisionController/libs/cameras/nvuri_source_bin.py"
+    source_bin_func: "create_source_bin"
+    kwargs: {}
+
 
 mqtt:
   # broker: '192.168.181.204'
@@ -105,7 +120,7 @@ pipeline:
   width: 3840
   height: 2160
   sink_element: 'nv3dsink'
-  streammux_config: '/home/seaonics/Dev/VideoWallOrin/VisionController/config/streammux_config.txt'
+  streammux_config: '/app/VideoWallOrin/VisionController/config/config_nvstreammux.txt'
   max_num_sources: 4
   batched_push_timeout: 20000
   batch_size: 4
