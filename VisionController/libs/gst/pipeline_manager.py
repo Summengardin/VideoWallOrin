@@ -856,6 +856,30 @@ class PipelineManager:
                         line_params.line_color.set(*lines[i]['line_color'])
 
 
+
+                rectangles = osd_manager.get_all_rectangles_as_dicts()
+                # print(rectangles)
+
+                if len(rectangles) > 0:
+
+                    try:
+                        display_meta.num_rects = len(rectangles)
+
+                        for i in range(display_meta.num_rects):
+                            rect_params = display_meta.rect_params[i]
+                            rect_params.left = rectangles[i]['x']
+                            rect_params.top = rectangles[i]['y']
+                            rect_params.width = rectangles[i]['width']
+                            rect_params.height = rectangles[i]['height']
+                            rect_params.border_width = rectangles[i]['border_width']
+                            rect_params.border_color.set(*rectangles[i]['border_color'])
+                            rect_params.has_bg_color = 0 if rectangles[i]['bg_color'] in {None, 0} else 1
+                            if rectangles[i]['bg_color'] is not None:
+                                rect_params.bg_color.set(*rectangles[i]['bg_color'])
+
+                    except Exception as e:
+                        logger.error(f"Unable to display rectangle. \nError: {type(e)}: {e}")
+
                 # # Parameters for the warning triangle
                 # offset_x = 100  # X-coordinate of the bottom left vertex of the triangle
                 # offset_y = 100  # Y-coordinate of the bottom left vertex of the triangle
