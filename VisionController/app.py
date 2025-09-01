@@ -261,7 +261,21 @@ class App():
                     if isinstance(osd_value, str):
                         osd_value = json.loads(osd_value)
                     
-                    self.pipeline_manager.osd_managers[source_id].upsert_text_from_dict(osd_value, osd_key)
+                    if osd_value.get("Type", None) is None:
+                        try:
+                            self.pipeline_manager.osd_managers[source_id].upsert_text_from_dict(osd_value, osd_key)
+                        except Exception as e:
+                            logger.error(f"Could not load OSD data: {e}")
+
+                    t = osd_value.get("Type", None)
+                    if t is None:
+                        continue
+                    elif t.lower() == "symbol":
+                        self.pipeline_manager.osd_managers[source_id].upsert_symbol_from_dict(osd_value, osd_key)
+                    elif t.lower() == "rectangle":  
+                        self.pipeline_manager.osd_managers[source_id].upsert_rectangle_from_dict(osd_value, osd_key)
+                    elif t.lower() == "text":
+                        self.pipeline_manager.osd_managers[source_id].upsert_text_from_dict(osd_value, osd_key)
 
             except Exception as e:
                 logger.error(f"Could not load OSD data: {e}")
