@@ -48,6 +48,7 @@ class PipelineManager:
         self.streammux = None
         self.sink = None
         self.nvinfer = None
+        self.nvtracker = None
         self.nvosd = None
         self.tiler = None
         self.loop = None
@@ -240,24 +241,29 @@ class PipelineManager:
         logger.info("Creating Elements")
         
         self.streammux = Gst.ElementFactory.make("nvstreammux", "streammux")
+
         # self.nvinfer = Gst.ElementFactory.make("nvinfer", "inference")        
+        # self.nvtracker = Gst.ElementFactory.make("nvtracker", "tracker")
+        
         self.tiler = Gst.ElementFactory.make("nvmultistreamtiler", "tiler")
         self.nvosd = Gst.ElementFactory.make("nvdsosd", "osd")
         self.sink_queue = Gst.ElementFactory.make("queue", "sink-queue")
-        self.nvconvertsink = Gst.ElementFactory.make("nvvideoconvert", "nvvid-convert-sink")
-        self.sink = Gst.ElementFactory.make("xvimagesink", "sink")
+        # self.nvconvertsink = Gst.ElementFactory.make("nvvideoconvert", "nvvid-convert-sink")
+        # self.sink = Gst.ElementFactory.make("xvimagesink", "sink")
         
-        # self.sink = Gst.ElementFactory.make("nveglglessink", "sink")
+        self.sink = Gst.ElementFactory.make("nveglglessink", "sink")
         # self.sink = Gst.ElementFactory.make("nvdrmvideosink", "sink")
        
 
         self.elements = OrderedDict({"streammux": self.streammux, 
-                         "nvmultistreamtiler": self.tiler, 
+                         "nvmultistreamtiler": self.tiler,
+                            # "nvinfer": self.nvinfer, 
+                            # "nvtracker": self.nvtracker,
                          "nvdsosd": self.nvosd, 
                             "sink_queue": self.sink_queue,
-                         "nvvideoconvert": self.nvconvertsink,
-                         "xvimagesink": self.sink})
-                        #  "nveglglessink": self.sink})
+                        #  "nvvideoconvert": self.nvconvertsink,
+                        #  "xvimagesink": self.sink})
+                         "nveglglessink": self.sink})
                         #   "nvdrmvideosink": self.sink})
 
         # for element in self.elements:
@@ -273,20 +279,12 @@ class PipelineManager:
                 return
             self.pipeline.add(element)
 
+        if self.nvinfer:
+            self.nvinfer.set_property("config-file-path", "/app/VisionController/config/infer/config_infer_primary_yoloV11.txt")
 
-        self.streammux.set_property("batch-size", self.batch_size)
-        self.streammux.set_property("sync-inputs", False)
-        self.streammux.set_property("max-latency", 1/60*1.01)
-        self.streammux.set_property("config-file-path", self.streammux_config_file)
-        self.streammux.set_property("batched-push-timeout", 16667)
-
-        self.nvosd.set_property("gpu-id", 0)
-        self.nvosd.set_property("process-mode", 1)
-        self.nvosd.set_property("display-text", True)
-        # self.nvosd.set_property("display-clock", True)
-        # self.nvosd.set_property("clock-font-size", 30)
-        # self.nvosd.set_property("x-clock-offset", 100)
-        # self.nvosd.set_property("y-clock-offset", 100)
+        if self.nvtracker:
+            self.nvtracker.set_property("ll-lib-file", "/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so")
+            self.nvtracker.set_property("ll-config-file", "/app/VisionController/config/infer/tracker_config.txt")
 
         self.tiler.set_property("rows", self.tiler_rows)
         self.tiler.set_property("columns", self.tiler_cols)
