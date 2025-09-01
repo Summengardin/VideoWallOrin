@@ -170,6 +170,7 @@ class App():
                 if topic_split[2] == 'VisionController0':
                     self._handle_vision_controllers_message(topic_split, payload)
             elif topic_split[1] == 'Cameras':
+                logger.debug(f"Handling camera message: {topic}: {payload}")
                 self._handle_cameras_message(topic_split, payload)
 
     def _handle_source_command(self, source_id: int, payload: Optional[str]) -> None:
@@ -204,15 +205,15 @@ class App():
         cam = self.cameras.get(source_label)
         if cam is None:
             logger.warning(f"Camera '{source_label}' not found; using placeholder")
-            use_cam = self.cameras.get("test")
+            use_cam = self.cameras.get("Test")
             if use_cam is None:
-                logger.error("No placeholder camera 'test' configured; aborting")
+                logger.error("No placeholder camera 'Test' configured; aborting")
                 return
         else:
             self.camera_uris[source_label] = cam.uri
 
             is_online = self.camera_status.get(cam.id, False)
-            use_cam = cam if is_online else self.cameras.get("test", cam)
+            use_cam = cam if is_online else self.cameras.get("Test", cam)
             if not is_online:
                 logger.debug(f"Camera '{cam.id}' offline → using placeholder for bin build")
 
