@@ -37,6 +37,8 @@ def create_source_bin(index: int, camera = None) -> Gst.Bin:
     nvurisrcbin.set_property("rtsp-reconnect-interval", 0)  # Timeout in seconds to wait before reconnection
     nvurisrcbin.set_property("rtsp-reconnect-attempts", 0)  # Set rtsp reconnect attempt value
 
+    # nvurisrcbin.set_property("select-rtp-protocol", 4)
+
     nvurisrcbin.connect("pad-added", nvurisrcbin_pad_added, (bin, index))
     nvurisrcbin.connect("child-added", decodebin_child_added, bin)
 
@@ -87,7 +89,7 @@ def decodebin_child_added(child_proxy, Object, name, data):
         Object.set_property("low-latency-mode", 1)
         Object.set_property("drop-frame-interval", 0)
 
-    if element_type == "queue":
+    elif element_type == "queue":
         if name != "dec_queue":
             Object.set_property("max-size-buffers", 1)
             Object.set_property("max-size-bytes", 0)
@@ -100,6 +102,9 @@ def decodebin_child_added(child_proxy, Object, name, data):
             Object.set_property("max-size-time", 0)
             Object.set_property("leaky", 2)
             Object.set_property("silent", 1)
+    
+    # elif element_type == "rtspsrc":
+    #     Object.set_property("drop-on-latency", True)
 
 
 def nvurisrcbin_pad_added(srcbin, pad, data):

@@ -277,6 +277,7 @@ class App():
                     elif t.lower() == "text":
                         self.pipeline_manager.osd_managers[source_id].upsert_text_from_dict(osd_value, osd_key)
 
+
             except Exception as e:
                 logger.error(f"Could not load OSD data: {e}")
                 return
@@ -419,6 +420,7 @@ class App():
         # topic_split = ["VWController", "Camera00", "IP"]
         # payload = {"IP":"10.1.3.71","DisplayName":"Tip","Width":1920,"Height":1080,"Framerate":5.4E1,"Format":"","Type":"","URI":""}
 
+        logger.debug(f"Camera {cam_id} update received")
 
         camera = self.cameras.get(cam_id, None)
         
@@ -448,6 +450,7 @@ class App():
         camera.format = payload.get('Format', camera.format)
 
         self.cameras[cam_id] = camera
+        self.camera_uris[cam_id] = camera.uri or ""
 
         logger.debug(f"Camera {cam_id} updated: {camera}")
 
@@ -488,7 +491,7 @@ class App():
         self.command_queue.put((message.topic, payload))
         # logger.debug(f"Queued:    {message.topic}: {payload}")
 
-    def _check_rtsp_feed(self, uri, timeout_seconds=0.4):
+    def _check_rtsp_feed(self, uri, timeout_seconds=0.5):
         """Check if an RTSP feed is available using ffprobe."""
         timeout_microseconds = int(timeout_seconds * 1000000)
         cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-stimeout', f'{timeout_seconds}', '-i', uri,
@@ -528,6 +531,7 @@ class App():
         # size: one worker per real camera (skip 'test' placeholders)
         n_workers = sum(1 for cid, uri in self.camera_uris.items()
                         if cid != "test" and uri)
+        n_workers = 8
 
         self.camera_status['Test'] = True  # Always keep 'test' camera online
         self.camera_status['Placeholder'] = True  # Always keep 'placeholder' camera online
@@ -536,11 +540,11 @@ class App():
             while not self.camera_monitor_stop_event.is_set():
                 try:
                     # One task per live camera URI
-                    futures = {
-                        executor.submit(self._check_rtsp_feed, uri): cam_id
-                        for cam_id, uri in self.camera_uris.items()
-                        if cam_id != "test" and uri
-                    }
+                    futures = {}
+                    for cam_id, uri in self.camera_uris.items():
+                        if cam_id != "test" and uri:
+                            future = executor.submit(self._check_rtsp_feed, uri)
+                            futures[future] = cam_id
                     
                     # Collect results; update dict from *this* thread only
                     for fut in as_completed(futures):

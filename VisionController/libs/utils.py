@@ -129,7 +129,7 @@ def calculate_text_offset(text: str, font_size: int, alignment: str) -> int:
 
     :param str text: The text to be aligned.
     :param int font_size: The font size used for the text.
-    :param str alignment: The desired alignment ('center','c' or 'right','r').
+    :param str alignment: The desired alignment ('left','l','center','c' or 'right','r').
     :return: The calculated offset.
     :rtype: int
     """

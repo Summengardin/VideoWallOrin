@@ -273,35 +273,45 @@ class PipelineManager:
                 return
             self.pipeline.add(element)
 
-
-        self.streammux.set_property("batch-size", self.batch_size)
-        self.streammux.set_property("sync-inputs", False)
-        self.streammux.set_property("max-latency", 1/60*1.01)
-        self.streammux.set_property("config-file-path", self.streammux_config_file)
-        self.streammux.set_property("batched-push-timeout", 16667)
-
-        self.nvosd.set_property("gpu-id", 0)
-        self.nvosd.set_property("process-mode", 1)
-        self.nvosd.set_property("display-text", True)
-        # self.nvosd.set_property("display-clock", True)
-        # self.nvosd.set_property("clock-font-size", 30)
-        # self.nvosd.set_property("x-clock-offset", 100)
-        # self.nvosd.set_property("y-clock-offset", 100)
-
-        self.tiler.set_property("rows", self.tiler_rows)
-        self.tiler.set_property("columns", self.tiler_cols)
-        self.tiler.set_property("width", self.width)
-        self.tiler.set_property("height", self.height)
-        self.tiler.set_property("nvbuf-memory-type", 0)
-        self.tiler.set_property("gpu-id", 0)
+        if self.streammux:
+            self.streammux.set_property("batch-size", self.batch_size)
+            self.streammux.set_property("sync-inputs", False)
+            self.streammux.set_property("max-latency", 1/60*1.01)
+            self.streammux.set_property("config-file-path", self.streammux_config_file)
+            self.streammux.set_property("batched-push-timeout", 16667)
         
-        self.sink_queue.set_property("leaky", 2)  # Dropping old buffers
-        self.sink_queue.set_property("max-size-buffers", 1)
-        self.sink_queue.set_property("max-size-bytes", 0)
-        self.sink_queue.set_property("max-size-time", 0)
+        if self.nvinfer:
+            self.nvinfer.set_property("config-file-path", "/app/VisionController/config/infer/config_infer_primary_yoloV11.txt")
 
-        self.sink.set_property("sync", False)
+        if self.nvtracker:
+            self.nvtracker.set_property("ll-lib-file", "/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so")
+            self.nvtracker.set_property("ll-config-file", "/app/VisionController/config/infer/tracker_config.txt")
 
+        if self.nvosd:
+            self.nvosd.set_property("gpu-id", 0)
+            self.nvosd.set_property("process-mode", 1)
+            self.nvosd.set_property("display-text", True)
+            # self.nvosd.set_property("display-clock", True)
+            # self.nvosd.set_property("clock-font-size", 30)
+            # self.nvosd.set_property("x-clock-offset", 100)
+            # self.nvosd.set_property("y-clock-offset", 100)
+
+        if self.tiler:
+            self.tiler.set_property("rows", self.tiler_rows)
+            self.tiler.set_property("columns", self.tiler_cols)
+            self.tiler.set_property("width", self.width)
+            self.tiler.set_property("height", self.height)
+            self.tiler.set_property("nvbuf-memory-type", 0)
+            self.tiler.set_property("gpu-id", 0)
+        
+        if self.sink_queue:
+            self.sink_queue.set_property("leaky", 2)  # Dropping old buffers
+            self.sink_queue.set_property("max-size-buffers", 1)
+            self.sink_queue.set_property("max-size-bytes", 0)
+            self.sink_queue.set_property("max-size-time", 0)
+
+        if self.sink:
+            self.sink.set_property("sync", False)
 
     def _link_elements(self):
         logger.info("Linking Elements")
@@ -408,7 +418,7 @@ class PipelineManager:
             True if added & linked; False on failure.
         """
         with self.source_lock:
-            logger.debug(f"Add Source: id={source_id}, camera={camera.id}")
+            logger.debug(f"Add Source: id={source_id}, camera={'Placeholder' if camera is None else camera.id}")
 
             if self.pipeline is None or self.streammux is None:
                 logger.error("Pipeline or streammux not initialized.")

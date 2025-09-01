@@ -169,4 +169,5 @@ cython_debug/
 **/*.nsys-rep
 tmp/
 
+**/*.tar
 
