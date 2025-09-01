@@ -46,12 +46,12 @@ class Line:
 
 
 class Triangle:
-    def __init__(self, x: int, y: int, radius: int, line_width: int, line_color: tuple, angle: float = 0):
+    def __init__(self, x: int, y: int, radius: int, border_width: int, border_color: tuple, angle: float = 0):
         self.x = x
         self.y = y
         self.radius = radius
-        self.line_width = line_width
-        self.line_color = line_color
+        self.border_width = border_width
+        self.border_color = border_color
         self.angle = angle
 
         self.vertices = None
@@ -72,14 +72,14 @@ class Triangle:
             x1, y1 = self.vertices[i]
             x2, y2 = self.vertices[(i + 1) % num_vertices]
             lines.append(
-                Line(x1, y1, x2, y2, self.line_width, self.line_color))
+                Line(x1, y1, x2, y2, self.border_width, self.border_color))
         return lines
 
 
 class Polygon:
-    def __init__(self, vertices: List[Tuple[int, int]], width: int, color: Tuple[float, float, float, float]):
+    def __init__(self, vertices: List[Tuple[int, int]], border_width: int, color: Tuple[float, float, float, float]):
         self.vertices = vertices
-        self.width = width
+        self.border_width = border_width
         self.color = color
 
     def to_lines(self) -> List[Line]:
@@ -88,7 +88,7 @@ class Polygon:
         for i in range(num_vertices):
             x1, y1 = self.vertices[i]
             x2, y2 = self.vertices[(i + 1) % num_vertices]
-            lines.append(Line(x1, y1, x2, y2, self.width, self.color))
+            lines.append(Line(x1, y1, x2, y2, self.border_width, self.color))
         return lines
     
 class Text:
@@ -101,7 +101,7 @@ class Text:
         self.font_size = font_size
         self.color = font_color
         self.bg_color = bg_color
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "x": self.x,
@@ -155,6 +155,7 @@ class OSDManager:
 
         self.default_font_color = (1.0, 1.0, 1.0, 1.0)
         self.default_line_color = (1.0, 0.0, 0.0, 1.0)
+        self.default_border_color = (1.0, 0.0, 0.0, 1.0)
         self.default_bg_color = (0.0, 0.0, 0.0, 0.6)
         self.default_font_size = 18
         self.default_font_name = DEFAULT_FONT_NAME
@@ -192,6 +193,7 @@ class OSDManager:
             triangle_id = self._generate_id()
         self.elements[triangle_id] = {
             "type": "triangle",
+            "object": Triangle(x, y, radius, border_width, border_color, angle),
             "object": Triangle(x, y, radius, line_width, line_color, angle),
             "timeout": time.time() + timeout if timeout > 0 else -1,
             "visible": True
@@ -203,10 +205,12 @@ class OSDManager:
             polygon_id = self._generate_id()
         self.elements[polygon_id] = {
             "type": "polygon",
+            "object": Polygon(vertices, border_width, border_color),
             "object": Polygon(vertices, line_width, line_color),
             "timeout": time.time() + timeout if timeout > 0 else -1,
             "visible": True
         }
+
         return polygon_id
 
     def create_text(self, text: str = "", 
@@ -241,6 +245,8 @@ class OSDManager:
             "visible": True
         }
         return text_id
+    
+
  
     
     def create_symbol(self, symbol: str,
@@ -286,11 +292,7 @@ class OSDManager:
     def update_polygon(self, element_id: str, vertices: List[Tuple[int, int]], line_width: int, line_color: Tuple[float, float, float, float]):
         if element_id in self.elements and self.elements[element_id]["type"] == "polygon":
             self.elements[element_id]["object"] = Polygon(
-                vertices, line_width, line_color)
-
-    def update_text(self, text_id: str, text: str):
-        if text_id in self.elements and self.elements[text_id]["type"] == "text":
-            self.elements[text_id]["object"]["text"] = text
+                vertices, border_width, border_color)
 
     def upsert_text(self, 
                     text_id: Optional[str] = None,
@@ -304,7 +306,7 @@ class OSDManager:
                     bg_color: Optional[Tuple[float, float, float, float]] = None,
                     timeout: Optional[float] = None) -> str:
         """ Update or create a text element with the given parameters. """
-        # logger.debug(f"upsert_text: {text_id}, {text}, {x}, {y}, {alignment}, {font_size}, {color}, {bg_color}, {timeout}")
+        # logger.debug(f"upsert_text: {text_id}, {text}, {x}, {y}, {alignment}, {font_size}, {color}, {bg_color}")
         
         if text_id is not None and text_id in self.elements and self.elements[text_id]["type"] == "text":
             change = False
@@ -339,9 +341,8 @@ class OSDManager:
                         x: Optional[int] = None,
                         y: Optional[int] = None,
                         radius: Optional[int] = None,
-                        line_width: Optional[int] = None,
-                        line_color: Optional[Tuple[float,
-                                                   float, float, float]] = None,
+                        border_width: Optional[int] = None,
+                        border_color: Optional[Tuple[float, float, float, float]] = None,
                         angle: Optional[float] = None,
                         timeout: Optional[float] = -1) -> str:
         """ Update or create a triangle with the given parameters. """
@@ -354,10 +355,10 @@ class OSDManager:
                 self.elements[triangle_id]["object"].y = y
             if radius is not None:
                 self.elements[triangle_id]["object"].radius = radius
-            if line_width is not None:
-                self.elements[triangle_id]["object"].line_width = line_width
-            if line_color is not None:
-                self.elements[triangle_id]["object"].line_color = line_color
+            if border_width is not None:
+                self.elements[triangle_id]["object"].border_width = border_width
+            if border_color is not None:
+                self.elements[triangle_id]["object"].border_color = border_color
             if angle is not None:
                 self.elements[triangle_id]["object"].angle = angle
             if timeout is not None:
@@ -417,13 +418,11 @@ class OSDManager:
         key = key.strip('.')
         if key.endswith('.Value'):
             key = key[:-6]
-        return key
-        
+        return key    
 
     def upsert_text_from_dict(self, text_dict: Dict[str, Any], text_id: Optional[str] = None) -> str:
         """ Add or update a text element with the given parameters. """
         # logger.debug(f"upsert_text_from_dict: {text_dict}, {text_id}")
-
         # Create a normalized dictionary with base keys
         normalized_dict = {}
 
@@ -465,6 +464,31 @@ class OSDManager:
             bg_color=tuple(map(float, normalized_dict.get("BGColor", "0.0,0.0,0.0,0.6").split(","))),
             timeout=float(normalized_dict.get("Timeout", 0)),
             text_id=text_id
+        )
+    
+    def upsert_rectangle_from_dict(self, rectangle_dict: Dict[str, Any], rectangle_id: Optional[str] = None) -> str:
+        if rectangle_id is not None and rectangle_id in self.elements and self.elements[rectangle_id]["type"] == "rectangle":
+            return self.upsert_rectangle(
+                rectangle_id=rectangle_id,
+                x=int(rectangle_dict.get("PosX", 0)),
+                y=int(rectangle_dict.get("PosY", 0)), 
+                width=int(rectangle_dict.get("Width", 100)),
+                height=int(rectangle_dict.get("Height", 100)),
+                border_width=int(rectangle_dict.get("BorderWidth", 2)),
+                border_color=self.default_border_color if rectangle_dict.get("BorderColor") in [None, "0"] else tuple(map(float, rectangle_dict["BorderColor"].split(","))),
+                bg_color=None if rectangle_dict.get("BGColor") in [None, "0"] else tuple(map(float, rectangle_dict["BGColor"].split(","))),
+                enable=int(rectangle_dict.get("Enable", True))
+            )
+        return self.create_rectangle(
+            x=int(rectangle_dict.get("PosX", 0)),
+            y=int(rectangle_dict.get("PosY", 0)),
+            width=int(rectangle_dict.get("Width", 100)),
+            height=int(rectangle_dict.get("Height", 100)),
+            border_width=int(rectangle_dict.get("BorderWidth", 2)),
+            border_color=None if rectangle_dict.get("BorderColor") in [None, "0"] else tuple(map(float, rectangle_dict["BorderColor"].split(","))),
+            bg_color=None if rectangle_dict.get("BGColor") in [None, "0"] else tuple(map(float, rectangle_dict["BGColor"].split(","))),
+            rectangle_id=rectangle_id,
+            enable=int(rectangle_dict.get("Enable", True))
         )
     
     def upsert_symbol_from_dict(self, symbol_dict: Dict[str, Any], symbol_id: Optional[str] = None) -> str:
