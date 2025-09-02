@@ -413,8 +413,10 @@ class App():
     def _handle_cameras_message(self, topic_split, payload):
         cam_id = topic_split[2]
         index = find_digits_in_string(cam_id)
-        # command = topic_split[2]
-
+        if len(topic_split) >= 4:
+            attribute = topic_split[3]
+        else:
+            attribute = ""
         # VWController/Cameras/Camera00 = {"IP":"10.1.3.71","DisplayName":"Tip","Width":1920,"Height":1080,"Framerate":5.4E1,"Format":"","Type":"","URI":""}
         # index = 0
         # topic_split = ["VWController", "Camera00", "IP"]
@@ -426,28 +428,46 @@ class App():
         
         if camera is None:
             camera = Camera(id=cam_id)
-            self.cameras[cam_id] = camera
 
-        payload = json.loads(payload)    
+        if attribute == "DisplayName":
+            camera.name = payload
+        elif attribute == "IP":
+            camera.ip = payload
+        elif attribute == "URI":
+            camera.uri = payload
+        elif attribute == "Width":
+            camera.width = int(float(payload))
+        elif attribute == "Height":
+            camera.height = int(float(payload))
+        elif attribute == "Framerate":
+            camera.framerate = float(payload)
+        elif attribute == "Format":
+            camera.format = payload 
+        elif attribute == "Type":
+            camera.type = payload
+        else: # Assuming json payload with multiple attributes
+            pass
+            # payload = json.loads(payload)    
 
-        camera.uri = payload.get('URI', camera.uri)
-        parsed = urlparse(camera.uri)
+            # camera.uri = payload.get('URI', camera.uri)
+            # parsed = urlparse(camera.uri)
 
-        camera.ip = parsed.hostname
-        camera.name = payload.get('DisplayName', camera.name)
-        camera.type = payload.get('Type', camera.type)
-        camera.control = None
-        try:
-            camera.control = self.camera_factory.create_camera_control(camera)
-        except KeyError as e:
-            logger.error(f"Camera type '{camera.type}' not registered in provider registry: {e}")
-        except ImportError as e:
-            logger.error(f"Failed to import camera control for type '{camera.type}': {e}")
-        
-        camera.width = int(payload.get('Width', camera.width))
-        camera.height = int(payload.get('Height', camera.height))
-        camera.framerate = float(payload.get('Framerate', camera.framerate))
-        camera.format = payload.get('Format', camera.format)
+            # camera.ip = parsed.hostname
+            # camera.name = payload.get('DisplayName', camera.name)
+            # camera.type = payload.get('Type', camera.type)            
+            # camera.width = int(payload.get('Width', camera.width))
+            # camera.height = int(payload.get('Height', camera.height))
+            # camera.framerate = float(payload.get('Framerate', camera.framerate))
+            # camera.format = payload.get('Format', camera.format)
+
+        if camera.type is not None and camera.ip is not None and camera.uri is not None:
+            camera.control = None
+            try:
+                camera.control = self.camera_factory.create_camera_control(camera)
+            except KeyError as e:
+                logger.error(f"Camera type '{camera.type}' not registered in provider registry: {e}")
+            except ImportError as e:
+                logger.error(f"Failed to import camera control for type '{camera.type}': {e}")
 
         self.cameras[cam_id] = camera
         self.camera_uris[cam_id] = camera.uri or ""

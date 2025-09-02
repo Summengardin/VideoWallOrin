@@ -48,6 +48,7 @@ class PipelineManager:
         self.streammux = None
         self.sink = None
         self.nvinfer = None
+        self.nvtracker = None
         self.nvosd = None
         self.tiler = None
         self.loop = None
@@ -240,7 +241,8 @@ class PipelineManager:
         logger.info("Creating Elements")
         
         self.streammux = Gst.ElementFactory.make("nvstreammux", "streammux")
-        # self.nvinfer = Gst.ElementFactory.make("nvinfer", "inference")        
+        # self.nvinfer = Gst.ElementFactory.make("nvinfer", "inference")
+        # self.nvtracker = Gst.ElementFactory.make("nvtracker", tracker)        
         self.tiler = Gst.ElementFactory.make("nvmultistreamtiler", "tiler")
         self.nvosd = Gst.ElementFactory.make("nvdsosd", "osd")
         self.sink_queue = Gst.ElementFactory.make("queue", "sink-queue")

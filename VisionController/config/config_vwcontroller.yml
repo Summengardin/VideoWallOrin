@@ -73,18 +73,14 @@ mqtt:
       - 'Camera08'
       - 'Camera09'
     subtopics:
+      - 'DisplayName'
       - 'IP'
-      - 'Type'
       - 'Width'
       - 'Height'
-      - 'Format'
+      - 'URI'
       - 'Framerate'
-      - 'Zoom'
-      - 'Exposure'
-      - 'ExposureAuto'
-      - 'Gain'
-      - 'GainAuto'
-      - 'Name'
+      - 'Format'
+      - 'Type'
 
   vision_controllers:
     names:

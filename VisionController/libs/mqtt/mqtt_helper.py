@@ -61,15 +61,15 @@ def load_mqtt_topics(config: dict) -> List[str]:
 
     base_topic = "VWController"
     # Generate camera topics
-    # camera_config = config['cameras']
-    # for camera_name in camera_config['names']:
-    #     base_topic = f"Cameras/{camera_name}"
-    #     for subtopic in camera_config['subtopics']:
-    #         append_subtopic_with_qos(subtopic, base_topic)
     camera_config = config['cameras']
     for camera_name in camera_config['names']:
-        topic = f"{base_topic}/Cameras/{camera_name}"
-        topics.append((topic, 0))
+        base_cam_topic = f"{base_topic}/Cameras/{camera_name}"
+        for subtopic in camera_config['subtopics']:
+            append_subtopic_with_qos(subtopic, base_cam_topic)
+    # camera_config = config['cameras']
+    # for camera_name in camera_config['names']:
+    #     topic = f"{base_topic}/Cameras/{camera_name}"
+    #     topics.append((topic, 0))
     
 
     # Generate vision controller topics
