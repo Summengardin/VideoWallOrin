@@ -17,6 +17,8 @@ class MQTTClient:
         self.client.on_message = self.on_message
         self.client.on_disconnect = self.on_disconnect
 
+        self.client.reconnect_delay_set(min_delay=1, max_delay=60)
+
         self.running = False
         self.connected = False
 
@@ -43,24 +45,10 @@ class MQTTClient:
         """Callback for when the client disconnects from the server."""
         logger.info("Disconnected from broker")
         self.connected = False
-        # Try to reconnect if not disconnected intentionally
-        self._reconnect()
 
-    def _reconnect(self):
-
-        while self.running:
-            try:
-                self.client.reconnect()
-                break
-            except ConnectionRefusedError:
-                if self.running:
-                    logger.error(f"Connection to MQTT broker ({self.broker}:{self.port}) refused. Trying again.")
-            except TimeoutError:
-                if self.running:
-                    logger.error(f"Reconnection to MQTT broker ({self.broker}:{self.port}) timed out. Trying again.")
-
-            self.connection_timeout.wait(5)
-
+    def __getattr__(self, name):
+        # called only if attr wasn’t found on self
+        return getattr(self.client, name)
 
     def start(self):
         self.running = True
