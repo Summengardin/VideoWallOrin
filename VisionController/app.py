@@ -45,10 +45,20 @@ class App():
         self.command_queue = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=4)
         
+        # MQTT   
         self.topics = load_mqtt_topics(self.mqtt_config)
         self.mqtt_client = MQTTClient(self.mqtt_config.get('broker'), self.mqtt_config.get('port'), self.topics)
         self.mqtt_client.set_on_message_callback(self._cb_mqtt_on_message)
-
+        self.mqtt_handler_thread = None
+        self.mqtt_client_thread = None
+        self.mqtt_publish_thread = None
+        self.mqtt_publish_queue = mp.Queue()
+        self.mqtt_publish_queue.put_nowait({
+                                    "cam_id": "Camera01",
+                                    "online": True,
+                                    "ts": time.time(),
+                                })
+        self.mqtt_publish_stop_event = threading.Event()
 
         self.pipeline_manager = PipelineManager(self.pipeline_config)
       
@@ -61,17 +71,13 @@ class App():
 
         self._test_zoom_dir = 1
 
-        # Thread references
         self.pipeline_thread = None
-        self.handler_thread = None
-        self.mqtt_thread = None
         self.monitor_thread = None
-        self.monitor_stop_event = None
 
         # Camera monitoring
         self.monitor_stop_event = threading.Event()
         self.camera_monitor_stop_event = mp.Event()
-
+        
         self.manager = mp.Manager()
         self.camera_status = self.manager.dict()
         self.camera_uris = self.manager.dict()
@@ -89,14 +95,19 @@ class App():
 
         time.sleep(1)
 
-        self.handler_thread = threading.Thread(target=self._mqtt_command_handler)
-        self.handler_thread.start()
+        self.mqtt_handler_thread = threading.Thread(target=self._mqtt_command_handler)
+        self.mqtt_handler_thread.start()
 
-        self.mqtt_thread = threading.Thread(target=self.mqtt_client.start)
-        self.mqtt_thread.start()
+        self.mqtt_client_thread = threading.Thread(target=self.mqtt_client.start)
+        self.mqtt_client_thread.start()
 
-        self.monitor_thread = threading.Thread(target=self._monitor_sources)
-        self.camera_monitor_process = mp.Process(target=self._monitor_cameras_process)
+        self.mqtt_publish_thread = threading.Thread(target=self._mqtt_publisher_loop, 
+                                                    args=[self.mqtt_publish_queue,self.mqtt_publish_stop_event])
+        self.mqtt_publish_thread.start()
+
+        self.monitor_thread = threading.Thread(target=self._maintain_sources)
+        self.camera_monitor_process = mp.Process(target=self._monitor_cameras_process,
+                                                 args=[self.mqtt_publish_queue])
         self.monitor_thread.start()
         self.camera_monitor_process.start()
 
@@ -104,8 +115,9 @@ class App():
         """Stop the application and clean up resources"""
         logger.info("Stopping app")
         logger.debug("|--> Stopping monitor threads and process")
-        self.camera_monitor_stop_event.set()
+        self.camera_monitor_stop_event.set()    
         self.monitor_stop_event.set()
+        self.mqtt_publish_stop_event.set()
 
         logger.debug("|--> Stopping command queue")
         self.command_queue.put(None)
@@ -121,13 +133,18 @@ class App():
             self.monitor_thread.join()
         if self.camera_monitor_process and self.camera_monitor_process.is_alive():
             self.camera_monitor_process.join()
+        
+        logger.debug("|--> Joining mqtt publishing thread")
+        if self.mqtt_publish_thread and self.mqtt_publish_thread.is_alive():
+            self.mqtt_publish_thread.join()
+
         logger.debug("|--> Joining handler thread")
-        if self.handler_thread and self.handler_thread.is_alive():
-            self.handler_thread.join()
+        if self.mqtt_handler_thread and self.mqtt_handler_thread.is_alive():
+            self.mqtt_handler_thread.join()
         
         logger.debug("|--> Joining mqtt thread")
-        if self.mqtt_thread and self.mqtt_thread.is_alive():
-            self.mqtt_thread.join()
+        if self.mqtt_client_thread and self.mqtt_client_thread.is_alive():
+            self.mqtt_client_thread.join()
         
         logger.debug("|--> Joining pipeline thread")
         if self.pipeline_thread and self.pipeline_thread.is_alive():
@@ -533,28 +550,58 @@ class App():
         
         except subprocess.CalledProcessError as e:
             # stream was probed but unavailable
-            logger.debug(f"RTSP feed check failed for {uri}: {e.stderr.strip()}")
+            # logger.debug(f"RTSP feed check failed for {uri}: {e.stderr.strip()}")
             return False
         except subprocess.TimeoutExpired:
-            logger.debug(f"RTSP feed check timed out for {uri} after {timeout_seconds}s")
+            # logger.debug(f"RTSP feed check timed out for {uri} after {timeout_seconds}s")
             return False
         except Exception as e:
-            logger.debug(f"Error checking RTSP feed {uri}: {e}")
+            # logger.debug(f"Error checking RTSP feed {uri}: {e}")
             return False
 
+    def _mqtt_publisher_loop(self, mqtt_pub_queue: mp.Queue, stop_event: threading.Event):
+        last_sent = {} # {cam_id: bool}
+
+        while not stop_event.is_set():
+            try:
+                cam_status = mqtt_pub_queue.get(timeout=0.5)
+            except Exception:
+                mqtt_pub_queue.put({
+                                    "cam_id": "Test",
+                                    "online": True,
+                                    "ts": time.time(),
+                                })
+                continue
+ 
+            logger.critical(f"Pulled from PublishQueue {cam_status}")
+
+            cam_id = cam_status["cam_id"]
+            online = bool(cam_status["online"])
+
+            # if last_sent.get(cam_id) == online:
+            #     continue
+            last_sent[cam_id] = online
+
+            topic = f"VWController/Cameras/{cam_id}/Online"
+            payload = online
+
+
+
+            self.mqtt_client.client.publish(topic, payload, qos=0, retain=0)     
     
-    def _monitor_cameras_process(self):
+
+    def _monitor_cameras_process(self, mqtt_pub_queue: mp.Queue = None):
         """Runs in its own *process*; reuses a thread-pool instead of creating
         new Thread objects every loop iteration."""
 
         run_counter = 0
-        # size: one worker per real camera (skip 'test' placeholders)
-        n_workers = sum(1 for cid, uri in self.camera_uris.items()
-                        if cid != "test" and uri)
         n_workers = 8
 
-        self.camera_status['Test'] = True  # Always keep 'test' camera online
-        self.camera_status['Placeholder'] = True  # Always keep 'placeholder' camera online
+        # Virtual cameras are always online
+        self.camera_status['Test'] = True
+        self.camera_status['Placeholder'] = True 
+
+        last_status = dict(self.camera_status)
 
         with ThreadPoolExecutor(max_workers=max(1, n_workers)) as executor:
             while not self.camera_monitor_stop_event.is_set():
@@ -567,37 +614,50 @@ class App():
                             futures[future] = cam_id
                     
                     # Collect results; update dict from *this* thread only
-                    for fut in as_completed(futures):
-                        cam_id = futures[fut]
-                        try:
-                            new_status = bool(fut.result())
-                            old_status = self.camera_status.get(cam_id, False)
+                    for future in as_completed(futures):
+                        cam_id = futures[future]
+                        try:                            
+                            new_status = bool(future.result())
+                        except Exception:
+                            new_status = False
+                        
+                        old_status = self.camera_status.get(cam_id, False)
+                        
+                        # If camera was connected and now disconnected
+                        if old_status and not new_status:
+                            current_time = time.time()
+                            logger.info(f"Camera:{cam_id} is now {'ONLINE' if new_status else 'OFFLINE'}")
+                            last_disconnect = self.disconnect_timestamps.get(cam_id, 0)
                             
-                            # If camera was connected and now disconnected
-                            if old_status and not new_status:
-                                current_time = time.time()
-                                last_disconnect = self.disconnect_timestamps.get(cam_id, 0)
-                                
-                                # Reset counter if outside time window
-                                if current_time - last_disconnect > self.disconnect_window:
-                                    self.disconnect_counters[cam_id] = 1
-                                else:
-                                    self.disconnect_counters[cam_id] = self.disconnect_counters.get(cam_id, 0) + 1
-                                
-                                self.disconnect_timestamps[cam_id] = current_time
-                                
-                                # Check if camera should be discarded
-                                if self.disconnect_counters.get(cam_id, 0) >= self.max_disconnects:
-                                    logger.warning(f"Camera {cam_id} disconnected too frequently, removing from active cameras")
-                                    self.camera_uris[cam_id] = None  # Remove URI to prevent reconnection attempts
-                                    self.camera_status[cam_id] = False
-                                    continue
+                            # Reset counter if outside time window
+                            if current_time - last_disconnect > self.disconnect_window:
+                                self.disconnect_counters[cam_id] = 1
+                            else:
+                                self.disconnect_counters[cam_id] = self.disconnect_counters.get(cam_id, 0) + 1
                             
-                            self.camera_status[cam_id] = new_status
+                            self.disconnect_timestamps[cam_id] = current_time
+                                    
+                            if self.disconnect_counters.get(cam_id, 0) >= self.max_disconnects:
+                                logger.warning(f"Camera {cam_id} disconnected too frequently, removing from active cameras")
+                                self.camera_uris[cam_id] = None  # Remove URI to prevent reconnection attempts
+                                self.camera_status[cam_id] = False
+                                self.disconnect_counters[cam_id] = 0
+                                                       
+                        self.camera_status[cam_id] = new_status
                             
-                        except Exception as exc:
-                            logger.warning("Camera %s raised %s", cam_id, exc)
-                            self.camera_status[cam_id] = False
+                        # Publish status
+                        if last_status.get(cam_id, None) is None or new_status != old_status:
+                            logger.critical(f"Publishing cam_id: {cam_id}, online: {new_status}, ts: {time.time()}")
+                            last_status[cam_id] = new_status
+                            try:
+                                mqtt_pub_queue.put_nowait({
+                                    "cam_id": cam_id,
+                                    "online": new_status,
+                                    "ts": time.time(),
+                                })
+                            except Exception:
+                                logger.warning(f"Mqtt publisher queue is full. Not able to publish events")
+                                pass
 
                     # Periodic debug print
                     run_counter += 1
@@ -650,8 +710,8 @@ class App():
             return False
 
 
-    def _monitor_sources(self) -> None:
-        """Monitor sources for disconnections and reconnect them using the CameraFactory."""
+    def _maintain_sources(self) -> None:
+        """ Check status of cameras and update sources thereafter."""
         # Buffer/counter for missing camera config/URI messages
         missing_cam_log_counters = {}
         missing_cam_log_interval = 25  # Only log every 25 cycles (~5s if 0.2s per cycle)

@@ -47,7 +47,7 @@ class MQTTClient:
         self.connected = False
 
     def __getattr__(self, name):
-        # called only if attr wasn’t found on self
+        # Look for attribute on client if not in this custom class
         return getattr(self.client, name)
 
     def start(self):
