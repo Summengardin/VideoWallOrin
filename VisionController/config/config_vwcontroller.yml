@@ -72,6 +72,11 @@ mqtt:
       - 'Camera07'
       - 'Camera08'
       - 'Camera09'
+      - 'Camera10'
+      - 'Camera11'
+      - 'Camera12'
+      - 'Camera13'
+      - 'Camera14'
     subtopics:
       - 'DisplayName'
       - 'IP'

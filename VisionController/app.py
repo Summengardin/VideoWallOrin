@@ -442,6 +442,7 @@ class App():
         logger.debug(f"Camera {cam_id} update received")
 
         camera = self.cameras.get(cam_id, None)
+
         
         if camera is None:
             camera = Camera(id=cam_id)
@@ -566,11 +567,6 @@ class App():
             try:
                 cam_status = mqtt_pub_queue.get(timeout=0.5)
             except Exception:
-                mqtt_pub_queue.put({
-                                    "cam_id": "Test",
-                                    "online": True,
-                                    "ts": time.time(),
-                                })
                 continue
  
             logger.critical(f"Pulled from PublishQueue {cam_status}")
@@ -589,94 +585,95 @@ class App():
 
             self.mqtt_client.client.publish(topic, payload, qos=0, retain=0)     
     
-
     def _monitor_cameras_process(self, mqtt_pub_queue: mp.Queue = None):
-        """Runs in its own *process*; reuses a thread-pool instead of creating
-        new Thread objects every loop iteration."""
-
         run_counter = 0
         n_workers = 8
 
         # Virtual cameras are always online
         self.camera_status['Test'] = True
-        self.camera_status['Placeholder'] = True 
+        self.camera_status['Placeholder'] = True
 
-        last_status = dict(self.camera_status)
+        last_published = {}  # cam_id -> bool  (DON'T prefill from camera_status)
 
         with ThreadPoolExecutor(max_workers=max(1, n_workers)) as executor:
             while not self.camera_monitor_stop_event.is_set():
                 try:
-                    # One task per live camera URI
                     futures = {}
                     for cam_id, uri in self.camera_uris.items():
                         if cam_id != "test" and uri:
                             future = executor.submit(self._check_rtsp_feed, uri)
                             futures[future] = cam_id
-                    
-                    # Collect results; update dict from *this* thread only
+                        else:
+                            # Invalid/Virtual cameras
+                            prev_pub = last_published.get(cam_id)
+                            status = cam_id == 'test'
+                            if prev_pub is None:
+                                evt = {"cam_id": cam_id,
+                                    "online": status, "ts": time.time()}
+                                try:
+                                    if mqtt_pub_queue is not None:
+                                        mqtt_pub_queue.put_nowait(evt)
+                                    last_published[cam_id] = status
+                                    logger.debug(f"Queued MQTT status {cam_id} -> {status}")
+                                except Exception:
+                                    logger.warning(f"MQTT publisher queue is full; dropped {cam_id}")
+
                     for future in as_completed(futures):
                         cam_id = futures[future]
-                        try:                            
+                        try:
                             new_status = bool(future.result())
                         except Exception:
                             new_status = False
-                        
+
                         old_status = self.camera_status.get(cam_id, False)
-                        
-                        # If camera was connected and now disconnected
+
+                        # your disconnect logic stays the same...
                         if old_status and not new_status:
                             current_time = time.time()
-                            logger.info(f"Camera:{cam_id} is now {'ONLINE' if new_status else 'OFFLINE'}")
+                            logger.info(f"Camera:{cam_id} is now OFFLINE")
                             last_disconnect = self.disconnect_timestamps.get(cam_id, 0)
-                            
-                            # Reset counter if outside time window
                             if current_time - last_disconnect > self.disconnect_window:
                                 self.disconnect_counters[cam_id] = 1
                             else:
                                 self.disconnect_counters[cam_id] = self.disconnect_counters.get(cam_id, 0) + 1
-                            
                             self.disconnect_timestamps[cam_id] = current_time
-                                    
                             if self.disconnect_counters.get(cam_id, 0) >= self.max_disconnects:
-                                logger.warning(f"Camera {cam_id} disconnected too frequently, removing from active cameras")
-                                self.camera_uris[cam_id] = None  # Remove URI to prevent reconnection attempts
+                                logger.warning(f"Camera {cam_id} disconnected too frequently, removing")
+                                self.camera_uris[cam_id] = None
                                 self.camera_status[cam_id] = False
                                 self.disconnect_counters[cam_id] = 0
-                                                       
-                        self.camera_status[cam_id] = new_status
-                            
-                        # Publish status
-                        if last_status.get(cam_id, None) is None or new_status != old_status:
-                            logger.critical(f"Publishing cam_id: {cam_id}, online: {new_status}, ts: {time.time()}")
-                            last_status[cam_id] = new_status
-                            try:
-                                mqtt_pub_queue.put_nowait({
-                                    "cam_id": cam_id,
-                                    "online": new_status,
-                                    "ts": time.time(),
-                                })
-                            except Exception:
-                                logger.warning(f"Mqtt publisher queue is full. Not able to publish events")
-                                pass
 
-                    # Periodic debug print
+                        # Update measured status
+                        self.camera_status[cam_id] = new_status
+
+                        # Publish only status on update
+                        prev_pub = last_published.get(cam_id)
+                        if prev_pub is None or prev_pub != new_status:
+                            evt = {"cam_id": cam_id,
+                                "online": new_status, "ts": time.time()}
+                            try:
+                                if mqtt_pub_queue is not None:
+                                    mqtt_pub_queue.put_nowait(evt)
+                                last_published[cam_id] = new_status
+                                logger.debug(f"Queued MQTT status {cam_id} -> {new_status}")
+                            except Exception:
+                                logger.warning(f"MQTT publisher queue is full; dropped {cam_id}")
+
                     run_counter += 1
                     if run_counter >= 10:
                         logger.debug("Camera status: %s", self.camera_status)
                         logger.debug("Disconnect counters: %s", dict(self.disconnect_counters))
                         run_counter = 0
 
-                    # one-second pacing and graceful stop
                     if self.camera_monitor_stop_event.wait(1):
                         break
 
                 except Exception as e:
                     logger.error("Error in camera monitor process: %s", e)
-                    # small back-off before retrying
                     if self.camera_monitor_stop_event.wait(5):
                         break
 
-        logger.info("Camera monitor process stopped")   
+        logger.info("Camera monitor process stopped")
 
     def _add_placeholder(self, source_id: int) -> bool:
         """Swap a source slot to a placeholder bin."""
