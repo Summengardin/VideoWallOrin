@@ -583,7 +583,7 @@ class App():
 
 
 
-            self.mqtt_client.client.publish(topic, payload, qos=0, retain=0)     
+            self.mqtt_client.client.publish(topic, payload, qos=0, retain=1)     
     
     def _monitor_cameras_process(self, mqtt_pub_queue: mp.Queue = None):
         run_counter = 0
