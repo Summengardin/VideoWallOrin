@@ -14,6 +14,23 @@ camera_providers:
     source_bin_func: "create_source_bin"
     kwargs: {}
 
+  Axis2:
+    enabled: true
+    type: Axis2
+    controller_file: "/app/VisionController/libs/cameras/vapix_control.py"
+    controller_class: "VapixControl"
+    source_bin_file: "/app/VisionController/libs/cameras/axis-crop-top_source_bin.py"
+    source_bin_func: "create_source_bin"
+    kwargs: {}
+
+  Axis3:
+    enabled: true
+    type: Axis3
+    controller_file: "/app/VisionController/libs/cameras/vapix_control.py"
+    controller_class: "VapixControl"
+    source_bin_file: "/app/VisionController/libs/cameras/axis-crop-mid_source_bin.py"
+    source_bin_func: "create_source_bin"
+    kwargs: {}
   Test:
     enabled: true
     type: Test
