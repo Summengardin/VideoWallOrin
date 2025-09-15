@@ -112,7 +112,25 @@ class VapixControl(CameraControl):
             logger.debug("Camera has no tilt-features")
         tilt_speed = clamp(tilt_speed, -1.0, 1.0) # -100% - +100%
         tilt_speed = scale(tilt_speed, -1.0, 1.0, -100, 100)
-        self.ptz.continuous_pantilt(0, tilt_speed);
+        self.ptz.continuous_pantilt(0, tilt_speed)
+
+    def absolute_pan(self, pan_position):
+        if not self.ptz.is_available:
+            logger.debug("Camera has no pan-features")
+        pan_position = clamp(pan_position, -180.0, 180.0) # -100% - +100%
+        self.ptz.absolute_pan(pan=pan_position)
+
+    def absolute_tilt(self, tilt_position):
+        if not self.ptz.is_available:
+            logger.debug("Camera has no pan-features")
+        tilt_position = clamp(tilt_position, -180.0, 180.0) # -100% - +100%
+        self.ptz.absolute_tilt(tilt=tilt_position)
+
+    def absolute_zoom(self, zoom):
+        if not self.ptz.is_available:
+            logger.debug("Camera has no pan-features")
+        zoom = clamp(zoom, 1, 9999) # -100% - +100%
+        self.ptz.absolute_zoom(zoom=zoom)
 
     def set_brightness(self, brightness: float):
         brightness = clamp(brightness)

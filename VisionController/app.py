@@ -152,18 +152,6 @@ class App():
 
         logger.debug("All threads and processes joined")
 
-    def _zoom_visca_tester(self):
-        try:
-            self.visca.zoom(0)
-        except:
-            print("Failed to stop zoom")
-        if self._test_zoom_dir == 1:
-            self.visca.zoom_to(1)
-            self._test_zoom_dir = 0
-        else:
-            self.visca.zoom_to(0)
-            self._test_zoom_dir = 1
-
 
     def _mqtt_command_handler(self):
         while not self.pipeline_manager.ready:
@@ -350,81 +338,51 @@ class App():
                     control.set_brightness(brightness)
             except Exception as e:
                 logger.error(f"Could not set brightness for Source {source_id}. \nError: {e}")
+        
+        elif subcommand == "ZoomAbs":
+            try:
+                zoom_abs = float(payload)
+            except TypeError as e:
+                logger.error(f"Wrong type provided absolute zoom (float expected)\nProvided: {payload}.\nError: {e}")
+
+            try:
+                control = self.pipeline_manager.sources[source_id].camera.control
+                if control is not None:
+                    control.absolute_zoom(zoom_abs)
+            except Exception as e:
+                logger.error(f"Could not initiate absolute zoom for Source {source_id}. \nError: {e}")
+
+        elif subcommand == "PanAbs":
+            try:
+                pan_abs = float(payload)
+            except TypeError as e:
+                logger.error(f"Wrong type provided as pan speed (float expected)\nProvided: {payload}.\nError: {e}")
+
+            try:
+                control = self.pipeline_manager.sources[source_id].camera.control
+                if control is not None:
+                    control.absolute_pan(pan_abs)
+            except Exception as e:
+                logger.error(f"Could not initiate absolute pan for Source {source_id}. \nError: {e}")
+
+        elif subcommand == "TiltAbs":
+            try:
+                tilt_abs = float(payload)
+            except TypeError as e:
+                logger.error(f"Wrong type provided for absolute tilt (float expected)\nProvided: {payload}.\nError: {e}")
+
+            try:
+                control = self.pipeline_manager.sources[source_id].camera.control
+                if control is not None:
+                    control.absolute_tilt(tilt_abs)
+            except Exception as e:
+                logger.error(f"Could not initiate absolute tilt for Source {source_id}. \nError: {e}")
+        
+        
         else:
             logger.warning(f"Tile-subcommand \"{subcommand}\" not assigned any logic yet")
 
-    def _update_source_feature(self, source_id: int, feature, value):
-        source = self.pipeline_manager.sources[source_id]
-
-        if source.type == SourceType.BAYER:
-            if feature == "exposure_time_auto":
-                
-                source.camera.exposure_time_auto = 'Off' if value == 0 else 'Continuous'
-                return self.pipeline_manager.set_exposure_auto_source(source.id, source.camera.exposure_time_auto)
-
-            elif feature == "exposure_time":
-                source.camera.exposure_time = value
-                if source.camera.exposure_time_auto != 'Off':
-                    return self.pipeline_manager.set_target_brightness_source(source.id, source.camera.exposure_time)
-                
-                return self.pipeline_manager.set_exposure_time_source(source.id, source.camera.exposure_time) 
-                
-            elif feature == "gain":
-                source.camera.gain = value
-                if source.camera.exposure_time_auto != 'Off':
-                    return 
-                return self.pipeline_manager.set_gain_source(source.id, source.camera.gain)                
-
-            elif feature == "zoom" and source.camera.has_zoom:
-                source.camera.zoom = value
-                return self.pipeline_manager.set_zoom_source(source.id, source.camera.zoom)
-
-        if source.type == SourceType.RTSP and source.camera.visca_controller is not None:
-
-            if feature == "exposure_time_auto":
-                source.camera.exposure_time_auto = 'auto' if value == 1 else 'manual'
-                try:
-                    if value == 1: 
-                        source.camera.visca_controller.set_exposure_compensation_on()
-                    else: 
-                        source.camera.visca_controller.set_exposure_compensation_off()
-
-                    source.camera.visca_controller.autoexposure_mode(source.camera.exposure_time_auto)
-
-
-                except Exception as e:
-                    logger.warning(f"Camera {source.camera.ip}: Failed to set exposure time auto: {e}")
-
-            elif feature == "exposure_time":
-                try:
-                    if source.camera.exposure_time_auto == 'manual':
-                        value = int((1 - value) * 21)
-                        source.camera.exposure_time = value
-                        source.camera.visca_controller.set_shutter(value)
-                    else:
-                        value = int(value * 14)
-                        source.camera.visca_controller.set_exposure_compensation(value)
-                except Exception as e:
-                    logger.warning(f"Camera {source.camera.ip}: Failed to set exposure time: {e}")
-                    
-            elif feature == "gain":
-                value = int(value * 14 + 1)
-                source.camera.gain = value
-                try:
-                    source.camera.visca_controller.set_gain(value)
-                except Exception as e:
-                    logger.warning(f"Camera {source.camera.ip}: Failed to set gain: {e}")
-
-            elif feature == "zoom":
-                source.camera.zoom = value
-                try:
-                    source.camera.visca_controller.zoom_to(value)
-                except Exception as e:
-                    logger.warning(f"Camera {source.camera.ip}: Failed to set zoom: {e}")
-            else:
-                return False
-
-            return True
+        
 
 
     def _handle_cameras_message(self, topic_split, payload):

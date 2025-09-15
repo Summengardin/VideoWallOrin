@@ -128,8 +128,11 @@ mqtt:
         - 'Enable'
         - 'Brightness'
         - 'ZoomSpeed'
+        - 'ZoomAbs'
         - 'PanSpeed'
+        - 'PanAbs'
         - 'TiltSpeed'
+        - 'TiltAbs'
         - 'OSD'
 
 pipeline:
