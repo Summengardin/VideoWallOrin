@@ -67,7 +67,7 @@ class App():
         self.monitor_thread = None
 
         # Camera monitoring
-        self.monitor_stop_event = threading.Event()
+        self.maintain_sources_stop_event = threading.Event()
         self.camera_monitor_stop_event = mp.Event()
         
         self.manager = mp.Manager()
@@ -96,7 +96,8 @@ class App():
                                                     args=[self.mqtt_publish_queue,self.mqtt_publish_stop_event])
         self.mqtt_publish_thread.start()
 
-        self.monitor_thread = threading.Thread(target=self._maintain_sources)
+        self.monitor_thread = threading.Thread(target=self._maintain_sources,
+                                                args=[self.mqtt_publish_queue])
         self.camera_monitor_process = mp.Process(target=self._monitor_cameras_process,
                                                  args=[self.mqtt_publish_queue])
         self.monitor_thread.start()
@@ -108,7 +109,7 @@ class App():
         logger.info("Stopping app")
         logger.debug("|--> Stopping monitor threads and process")
         self.camera_monitor_stop_event.set()    
-        self.monitor_stop_event.set()
+        self.maintain_sources_stop_event.set()
         self.mqtt_publish_stop_event.set()
 
         logger.debug("|--> Stopping command queue")
@@ -120,16 +121,18 @@ class App():
         logger.debug("|--> Stopping mqtt client")
         self.mqtt_client.stop()
 
-        logger.debug("|--> Joining monitor threads and process")
-        if self.monitor_thread and self.monitor_thread.is_alive():
-            self.monitor_thread.join()
+        logger.debug("|--> Joining monitor process")
         if self.camera_monitor_process and self.camera_monitor_process.is_alive():
             self.camera_monitor_process.join()
-        
+
+        logger.debug("|--> Joining monitor thread")
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            self.monitor_thread.join()
+
         logger.debug("|--> Joining mqtt publishing thread")
         if self.mqtt_publish_thread and self.mqtt_publish_thread.is_alive():
             self.mqtt_publish_thread.join()
-
+        
         logger.debug("|--> Joining handler thread")
         if self.mqtt_handler_thread and self.mqtt_handler_thread.is_alive():
             self.mqtt_handler_thread.join()
@@ -517,26 +520,28 @@ class App():
 
         while not stop_event.is_set():
             try:
-                cam_status = mqtt_pub_queue.get(timeout=0.5)
+                evt = mqtt_pub_queue.get(timeout=0.5)
             except Exception:
                 continue
- 
-            logger.critical(f"Pulled from PublishQueue {cam_status}")
 
-            cam_id = cam_status["cam_id"]
-            online = bool(cam_status["online"])
+            if evt.get("type", None) == "CameraStatus":
+                cam_id = evt["cam_id"]
+                online = bool(evt["online"])
 
-            # if last_sent.get(cam_id) == online:
-            #     continue
-            last_sent[cam_id] = online
+                topic = f"VWController/Cameras/{cam_id}/Online"
+                payload = online
 
-            topic = f"VWController/Cameras/{cam_id}/Online"
-            payload = online
+            elif evt.get("type", None) == "FPS":
+                fps = evt["fps"]
+                topic = f"VWController/VisionControllers/VisionController0/FPS"
+                payload = fps
 
-
+            else: 
+                return
 
             self.mqtt_client.client.publish(topic, payload, qos=0, retain=1)     
     
+
     def _monitor_cameras_process(self, mqtt_pub_queue: mp.Queue = None):
         run_counter = 0
         n_workers = 8
@@ -560,8 +565,10 @@ class App():
                             prev_pub = last_published.get(cam_id)
                             status = cam_id == 'test'
                             if prev_pub is None:
-                                evt = {"cam_id": cam_id,
-                                    "online": status, "ts": time.time()}
+                                evt = { "type": "CameraStatus",
+                                        "cam_id": cam_id,
+                                        "online": status,
+                                        "ts": time.time()}
                                 try:
                                     if mqtt_pub_queue is not None:
                                         mqtt_pub_queue.put_nowait(evt)
@@ -601,21 +608,19 @@ class App():
                         # Publish only status on update
                         prev_pub = last_published.get(cam_id)
                         if prev_pub is None or prev_pub != new_status:
-                            evt = {"cam_id": cam_id,
-                                "online": new_status, "ts": time.time()}
+                            logger.debug("Camera status: %s", self.camera_status)
+                            logger.debug("Disconnect counters: %s", dict(self.disconnect_counters))
+                            evt = { "type": "CameraStatus",
+                                    "cam_id": cam_id,
+                                    "online": new_status,
+                                    "ts": time.time()}
                             try:
                                 if mqtt_pub_queue is not None:
                                     mqtt_pub_queue.put_nowait(evt)
-                                last_published[cam_id] = new_status
+                                    last_published[cam_id] = new_status
                                 logger.debug(f"Queued MQTT status {cam_id} -> {new_status}")
                             except Exception:
                                 logger.warning(f"MQTT publisher queue is full; dropped {cam_id}")
-
-                    run_counter += 1
-                    if run_counter >= 10:
-                        logger.debug("Camera status: %s", self.camera_status)
-                        logger.debug("Disconnect counters: %s", dict(self.disconnect_counters))
-                        run_counter = 0
 
                     if self.camera_monitor_stop_event.wait(1):
                         break
@@ -660,13 +665,13 @@ class App():
             return False
 
 
-    def _maintain_sources(self) -> None:
+    def _maintain_sources(self, mqtt_pub_queue: mp.Queue = None) -> None:
         """ Check status of cameras and update sources thereafter."""
         # Buffer/counter for missing camera config/URI messages
         missing_cam_log_counters = {}
         missing_cam_log_interval = 25  # Only log every 25 cycles (~5s if 0.2s per cycle)
 
-        while not self.monitor_stop_event.is_set():
+        while not self.maintain_sources_stop_event.is_set():
             try:
                 for source_id, source in enumerate(self.pipeline_manager.sources):
                     desired_cam_id = self.desired_sources.get(source_id)
@@ -734,12 +739,23 @@ class App():
                             source.active = False
 
                 # pacing
-                if self.monitor_stop_event.wait(0.2):  # ~5 Hz
+                if self.maintain_sources_stop_event.wait(0.2):  # ~5 Hz
                     break
-
+            
             except Exception as e:
                 logger.error("Error in monitor thread: %s", e)
-                if self.monitor_stop_event.wait(5.0):
+                if self.maintain_sources_stop_event.wait(5.0):
                     break
+                
+            if self.pipeline_manager and self.pipeline_manager.fps is not None:
+                fps = self.pipeline_manager.fps
+                if mqtt_pub_queue is not None:
+                    evt = { "type": "FPS",
+                            "fps": fps,
+                            "ts": time.time()}
+                    try:
+                        mqtt_pub_queue.put_nowait(evt)
+                    except Exception:
+                        pass            
 
         logger.info("Monitor thread stopped")
