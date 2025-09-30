@@ -1,9 +1,3 @@
-general:
-  visca_port: 1000
-  enable_aravis: false
-  text_default_font: "Noto Serif Bold"
-  symnbol_default_font: "MaterialSymbolsOutlined-Medium"
-
 camera_providers:
   Axis:
     enabled: true
@@ -31,6 +25,7 @@ camera_providers:
     source_bin_file: "/app/VisionController/libs/cameras/axis-crop-mid_source_bin.py"
     source_bin_func: "create_source_bin"
     kwargs: {}
+    
   Test:
     enabled: true
     type: Test
@@ -67,17 +62,7 @@ mqtt:
   broker: 10.5.11.65
   port: 1883
 
-
-  # ---- MQTT topics ---- #
   # Following are topics. Some topics have an optional qos parameter. Default is 0.
-
-  # VWController/VisionController0/Tile01/Source = "Camera01"
-  # VWController/VisionController0/Tile01/Brightness = 0.5
-  # VWController/VisionController0/Tile01/OSD = {"OSDPort":{".Alignment.Value":"Center",".BGColor.Value":"0.0,0.0,0.0,0.6",".FontColor.Value":"1.0,1.0,1.0,1.0",".FontName.Value":"",".FontSize.Value":"18",".PosX.Value":"0",".PosY.Value":"0",".Text.Value":"",".TextIndex":"0",".TextProp":"",".Timeout.Value":"0"},"OSDPort1":{".Alignment.Value":"left",".BGColor.Value":"0.0,0.0,0.0,0.6",".FontColor.Value":"1.0,1.0,1.0,1.0",".FontName.Value":"",".Font…
-
-
-
-  # Camera configuration
   cameras:
     names:
       - 'Camera01'
@@ -135,15 +120,13 @@ mqtt:
         - 'TiltAbs'
         - 'OSD'
 
+
 pipeline:
   tiler_rows: 2
   tiler_columns: 2  
   width: 3840
   height: 2160
-  sink_element: 'nv3dsink'
-  streammux_config: '/app/VideoWallOrin/VisionController/config/config_nvstreammux.txt'
+  streammux_config: '/app/VisionController/config/config_nvstreammux.txt'
   max_num_sources: 4
   batched_push_timeout: 20000
   batch_size: 4
-  sync_inputs: 0
-  enable_pipeline: false
