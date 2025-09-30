@@ -187,6 +187,66 @@ uri-list=rtsp://10.1.3.73/stream-1.sdp,rtsp://10.1.3.72/stream-1.sdp,rtsp://10.1
 
 
 # CDPLinux samples
+
+export LD_LIBRARY_PATH=/cuda:/opt/tritonserver/lib:/usr/local/cuda-12.2/compat/lib.real
+
+alias test-pipeline="gst-launch-1.0 videotestsrc ! nvvideoconvert ! nveglglessink"
+alias test-pipeline-coding="gst-launch-1.0 \
+  videotestsrc ! \
+  nvvideoconvert ! \
+  nvv4l2h264enc ! \
+  h264parse ! \
+  nvv4l2decoder ! \
+  nvvideoconvert ! \
+  glimagesink"
+
+sudo docker run -it --rm --privileged \
+    --env DISPLAY=:0 --env NVIDIA_DRIVER_CAPABILITIES=all --env NVIDIA_VISIBLE_DEVICES=all \
+    --env QT_X11_NO_MITSHM=1 \
+    --env LD_LIBRARY_PATH=/cuda:/opt/tritonserver/lib \
+    --volume /tmp/.X11-unix:/tmp/.X11-unix --volume /etc/X11:/etc/X11 --volume $HOME/.Xauthority:/root/.XAuthority \
+    --volume /home/seaonics/usr/:/cuda \
+    --volume /home/seaonics/VideoWall/VisionController:/app/VisionController \
+    --network host --name videowall \
+    --workdir /app \
+    vwvisioncontroller
+    
+sudo docker run -it --rm --privileged \
+    --env DISPLAY=:0 --env NVIDIA_DRIVER_CAPABILITIES=all --env NVIDIA_VISIBLE_DEVICES=all \
+    --env QT_X11_NO_MITSHM=1 \
+    --volume /tmp/.X11-unix:/tmp/.X11-unix --volume /etc/X11:/etc/X11 --volume $HOME/.Xauthority:/root/.XAuthority \
+    --volume /home/seaonics/usr/:/cuda \
+    --volume /home/seaonics/VideoWall/VisionController:/app/VisionController \
+    --network host --name videowall \
+    --workdir /app \
+    vwvisioncontroller
+
+sudo docker run -it --rm --privileged \
+    --env DISPLAY=:0 --env NVIDIA_DRIVER_CAPABILITIES=all --env NVIDIA_VISIBLE_DEVICES=all --env QT_X11_NO_MITSHM=1 \
+    --volume /tmp/.X11-unix:/tmp/.X11-unix --volume /etc/X11:/etc/X11 --volume $HOME/.Xauthority:/root/.XAuthority \
+    --volume /home/seaonics/usr/:/cuda \
+    --volume /home/seaonics/VideoWall/VisionController:/app/VisionController \
+    --device=/dev/nvidia0 --device=/dev/nvidiactl \
+    --device=/dev/nvidia-uvm --device=/dev/nvidia-uvm-tools \
+    --device=/dev/nvidia-modeset \
+    -v /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro \
+    -v /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro \
+    -v /usr/lib/x86_64-linux-gnu/libnvcuvid.so.1:/usr/lib/x86_64-linux-gnu/libnvcuvid.so.1:ro \
+    -e LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH \
+    --network host --name videowall \
+    --workdir /app vwvisioncontroller
+
+
+  --device=/dev/nvidia0 --device=/dev/nvidiactl \
+  --device=/dev/nvidia-uvm --device=/dev/nvidia-uvm-tools \
+  --device=/dev/nvidia-modeset \
+  -v /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro \
+  -v /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro \
+  -v /usr/lib/x86_64-linux-gnu/libnvcuvid.so.1:/usr/lib/x86_64-linux-gnu/libnvcuvid.so.1:ro \
+  -e LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH \
+
+
+
 export AXIS_URI=rtsp://root:root@10.1.3.70/axis-media/media.amp?streamprofile=stream-1 \
     AXIS_URI2=rtsp://root:root@10.1.3.80/axis-media/media.amp?streamprofile=stream-1 \
     AXIS_URI3=rtsp://root:root@10.1.3.85/axis-media/media.amp?streamprofile=stream-1 \
