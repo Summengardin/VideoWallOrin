@@ -53,23 +53,15 @@ class App():
         self.mqtt_client_thread = None
         self.mqtt_publish_thread = None
         self.mqtt_publish_queue = mp.Queue()
-        self.mqtt_publish_queue.put_nowait({
-                                    "cam_id": "Camera01",
-                                    "online": True,
-                                    "ts": time.time(),
-                                })
         self.mqtt_publish_stop_event = threading.Event()
 
         self.pipeline_manager = PipelineManager(self.pipeline_config)
       
-
         self.cameras = {}
         self.cameras['Test'] = Camera(id = "Test", ip="test", type="Test", width=1920, height=1080, framerate=60)
         self.cameras['Placeholder'] = Camera(id = "Placeholder", ip="test", type="Test", width=1920, height=1080, framerate=60)
 
         self.desired_sources = {}
-
-        self._test_zoom_dir = 1
 
         self.pipeline_thread = None
         self.monitor_thread = None
@@ -83,9 +75,8 @@ class App():
         self.camera_uris = self.manager.dict()
         self.disconnect_counters = self.manager.dict()
         self.disconnect_timestamps = self.manager.dict() 
-        self.max_disconnects = 5  # Maximum number of disconnects allowed
-        self.disconnect_window = 20  # Time window in seconds (5 minutes)
-
+        self.max_disconnects = 5
+        self.disconnect_window = 20  # seconds
 
 
     def run(self):
@@ -110,6 +101,7 @@ class App():
                                                  args=[self.mqtt_publish_queue])
         self.monitor_thread.start()
         self.camera_monitor_process.start()
+
 
     def stop(self):
         """Stop the application and clean up resources"""
@@ -177,6 +169,7 @@ class App():
             elif topic_split[1] == 'Cameras':
                 logger.debug(f"Handling camera message: {topic}: {payload}")
                 self._handle_cameras_message(topic_split, payload)
+
 
     def _handle_source_command(self, source_id: int, payload: Optional[str]) -> None:
         """
@@ -518,6 +511,7 @@ class App():
             # logger.debug(f"Error checking RTSP feed {uri}: {e}")
             return False
 
+
     def _mqtt_publisher_loop(self, mqtt_pub_queue: mp.Queue, stop_event: threading.Event):
         last_sent = {} # {cam_id: bool}
 
@@ -632,6 +626,7 @@ class App():
                         break
 
         logger.info("Camera monitor process stopped")
+
 
     def _add_placeholder(self, source_id: int) -> bool:
         """Swap a source slot to a placeholder bin."""
