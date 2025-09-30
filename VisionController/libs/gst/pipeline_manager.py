@@ -46,10 +46,11 @@ class PipelineManager:
         self.elements = []
         self.pipeline = None
         self.streammux = None
-        self.sink = None
         self.nvinfer = None
         self.nvtracker = None
         self.nvosd = None
+        self.sink_convert = None
+        self.sink = None
         self.tiler = None
         self.loop = None
         self.num_sources = 0
@@ -149,6 +150,7 @@ class PipelineManager:
         self.stop_monitoring()  # Stop monitoring sources
         logger.info("Pipeline stopped")
 
+
     def _elementwise_shutdown(self):
         logger.debug("Setting individual elements to NULL")
         if self.pipeline:
@@ -158,6 +160,7 @@ class PipelineManager:
                     elem.set_state(Gst.State.NULL)
             except gi.overrides.Gst.IteratorError as e:
                 logger.warning(f"Caught IteratorError during elementwise shutdown: {e}")
+
 
     def _set_fullscreen(self, source_id):
         if self.tiler:
@@ -208,8 +211,8 @@ class PipelineManager:
                         logger.error(f"Got unexpected EOS from stream {source_id}")
                         self.sources[source_id].eos = True
                         # self.add_source(source_id)
-                        # print(f"\n\n\n ADED SOURCE {source_id} \n\n\n")                    
-
+                        # print(f"\n\n\n ADED SOURCE {source_id} \n\n\n")  
+                        #                   
         return True
 
 
@@ -233,40 +236,44 @@ class PipelineManager:
         if not self.pipeline:
             logger.critical("Unable to create Pipeline")
             return
-    
-    
 
 
     def _create_elements(self):
         logger.info("Creating Elements")
         
         self.streammux = Gst.ElementFactory.make("nvstreammux", "streammux")
-        # self.nvinfer = Gst.ElementFactory.make("nvinfer", "inference")
-        # self.nvtracker = Gst.ElementFactory.make("nvtracker", tracker)        
+
+        self.nvinfer = Gst.ElementFactory.make("nvinfer", "inference")
+        self.nvtracker = Gst.ElementFactory.make("nvtracker", "tracker")  
+
         self.tiler = Gst.ElementFactory.make("nvmultistreamtiler", "tiler")
         self.nvosd = Gst.ElementFactory.make("nvdsosd", "osd")
         self.sink_queue = Gst.ElementFactory.make("queue", "sink-queue")
-        self.nvconvertsink = Gst.ElementFactory.make("nvvideoconvert", "nvvid-convert-sink")
-        self.sink = Gst.ElementFactory.make("xvimagesink", "sink")
         
-        # self.sink = Gst.ElementFactory.make("nveglglessink", "sink")
+        # self.sink_convert = Gst.ElementFactory.make("nvvideoconvert", "nvvid-convert-sink")
+        # self.sink = Gst.ElementFactory.make("xvimagesink", "sink")
+        # self.sink = Gst.ElementFactory.make("kmssink", "sink")
+        
+        self.sink = Gst.ElementFactory.make("nveglglessink", "sink")
         # self.sink = Gst.ElementFactory.make("nvdrmvideosink", "sink")
-       
 
-        self.elements = OrderedDict({"streammux": self.streammux, 
-                         "nvmultistreamtiler": self.tiler, 
-                         "nvdsosd": self.nvosd, 
-                            "sink_queue": self.sink_queue,
-                         "nvvideoconvert": self.nvconvertsink,
-                         "xvimagesink": self.sink})
-                        #  "nveglglessink": self.sink})
-                        #   "nvdrmvideosink": self.sink})
-
-        # for element in self.elements:
-        #     if not element:
-        #         logger.error(f"Unable to create {self.get_var_name(element)}")
-        #         return
-        #     self.pipeline.add(element)
+        self.elements = OrderedDict()
+        if self.streammux:
+            self.elements['streammux'] = self.streammux
+        if self.nvinfer:
+            self.elements['nvinfer'] = self.nvinfer
+        if self.nvtracker:
+            self.elements['nvtracker'] = self.nvtracker
+        if self.tiler:
+            self.elements['tiler'] = self.tiler
+        if self.nvosd:
+            self.elements['nvosd'] = self.nvosd
+        if self.sink_queue:
+            self.elements['sink_queue'] = self.sink_queue
+        if self.sink_convert:
+            self.elements['sink_convert'] = self.sink_convert
+        if self.sink:
+            self.elements['sink'] = self.sink
 
         for var_name, element in self.elements.items():
             if not element:
@@ -278,17 +285,25 @@ class PipelineManager:
         if self.streammux:
             self.streammux.set_property("batch-size", self.batch_size)
             self.streammux.set_property("sync-inputs", False)
-            self.streammux.set_property("max-latency", 1/60*1.01)
+            self.streammux.set_property("max-latency", 1/30 * 1.01)
             self.streammux.set_property("config-file-path", self.streammux_config_file)
-            self.streammux.set_property("batched-push-timeout", 16667)
+            self.streammux.set_property("batched-push-timeout", 1000020 / 30)
         
         if self.nvinfer:
             self.nvinfer.set_property("config-file-path", "/app/VisionController/config/infer/config_infer_primary_yoloV11.txt")
 
         if self.nvtracker:
             self.nvtracker.set_property("ll-lib-file", "/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so")
-            self.nvtracker.set_property("ll-config-file", "/app/VisionController/config/infer/tracker_config.txt")
-
+            self.nvtracker.set_property("ll-config-file", "/app/VisionController/config/infer/config_tracker.txt")
+        
+        if self.tiler:
+            self.tiler.set_property("rows", self.tiler_rows)
+            self.tiler.set_property("columns", self.tiler_cols)
+            self.tiler.set_property("width", self.width)
+            self.tiler.set_property("height", self.height)
+            self.tiler.set_property("nvbuf-memory-type", 0)
+            self.tiler.set_property("gpu-id", 0)
+        
         if self.nvosd:
             self.nvosd.set_property("gpu-id", 0)
             self.nvosd.set_property("process-mode", 1)
@@ -298,14 +313,6 @@ class PipelineManager:
             # self.nvosd.set_property("x-clock-offset", 100)
             # self.nvosd.set_property("y-clock-offset", 100)
 
-        if self.tiler:
-            self.tiler.set_property("rows", self.tiler_rows)
-            self.tiler.set_property("columns", self.tiler_cols)
-            self.tiler.set_property("width", self.width)
-            self.tiler.set_property("height", self.height)
-            self.tiler.set_property("nvbuf-memory-type", 0)
-            self.tiler.set_property("gpu-id", 0)
-        
         if self.sink_queue:
             self.sink_queue.set_property("leaky", 2)  # Dropping old buffers
             self.sink_queue.set_property("max-size-buffers", 1)
