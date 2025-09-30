@@ -265,7 +265,10 @@ RUN pip3 install --no-cache-dir -e /app/vapix-python
 
 
 # Set default environment variables
-ENV Z3_URI1=rtsp://10.1.3.71/stream-1.sdp 
-ENV Z3_URI2=rtsp://10.1.3.72/stream-1.sdp 
-ENV Z3_URI3=rtsp://10.1.3.73/stream-1.sdp 
-ENV AXIS_URI=rtsp://root:root@10.1.3.70/axis-media/media.amp?streamprofile=stream-1 
+ENV Z3_URI1=rtsp://10.1.3.71/stream-1.sdp
+ENV Z3_URI2=rtsp://10.1.3.72/stream-1.sdp
+ENV Z3_URI3=rtsp://10.1.3.73/stream-1.sdp
+ENV AXIS_URI=rtsp://root:root@10.1.3.70/axis-media/media.amp?streamprofile=stream-1
+ENV AXIS_URI2=rtsp://root:root@10.1.3.80/axis-media/media.amp?streamprofile=stream-1
+ENV AXIS_URI3=rtsp://root:root@10.1.3.81/axis-media/media.amp?streamprofile=stream-1
+ENV AXIS_URI4=rtsp://root:root@10.1.3.85/axis-media/media.amp?streamprofile=stream-1
