@@ -1,4 +1,5 @@
 
+# TO BUILD SINGLE IMAGE: docker compose build --no-cache videowall
 # TO RUN: docker compose up
 # FOR DEBUG (with shell): docker compose run --rm videowall /bin/bash
 
@@ -7,8 +8,16 @@ services:
   videowall:
     build:
         context: .
-        dockerfile: Dockerfile  # or path to your specific Dockerfile
-    image: vwvisioncontroller
+        dockerfile: Dockerfile
+        args:
+          - DEEPSTREAM_VERSION=7.0
+          - CUDA_VERSION=12.2
+          - PYTHON_APPS_VERSION=1.1.11
+          - ARCH=x86_64
+          - BUILD_ARAVIS=false
+          - BUILD_TISCAMERA=false
+          - BUILD_YOLO=true
+    image: vwvisioncontroller:7.0
     container_name: videowall
     runtime: nvidia
     command: python3 -m VisionController
@@ -24,12 +33,14 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - NVIDIA_VISIBLE_DEVICES=all
       - QT_X11_NO_MITSHM=1
+      - GST_DEBUG_DUMP_DOT_DIR=/app/tmp
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /etc/X11:/etc/X11
       - ~/.Xauthority:/root/.Xauthority
       - ./tmp:/app/tmp
       - ./VisionController:/app/VisionController
+      - ./vapix_python:/app/vapix_python
     network_mode: host
     working_dir: /app
     tty: true
@@ -37,10 +48,22 @@ services:
     privileged: false
     restart: always
 
-  videowallinfer:
-    image: vwvisioncontrollerinfer:7.0
+  videowall-7_1:
+    build:
+        context: .
+        dockerfile: Dockerfile
+        args:
+          - DEEPSTREAM_VERSION=7.1
+          - CUDA_VERSION=12.6
+          - PYTHON_APPS_VERSION=1.2.0
+          - ARCH=x86_64
+          - BUILD_ARAVIS=false
+          - BUILD_TISCAMERA=false
+          - BUILD_YOLO=true
+    image: vwvisioncontroller:7.1
+    container_name: videowall
     runtime: nvidia
-    command: /bin/bash
+    command: /bin/bash #python3 -m VisionController
     deploy:
       resources:
         reservations:
@@ -49,74 +72,18 @@ services:
               count: all
               capabilities: [gpu]
     environment:
-      - DISPLAY=${DISPLAY}
+      - DISPLAY=:0
       - NVIDIA_DRIVER_CAPABILITIES=all
       - NVIDIA_VISIBLE_DEVICES=all
       - QT_X11_NO_MITSHM=1
+      - GST_DEBUG_DUMP_DOT_DIR=/app/tmp
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /etc/X11:/etc/X11
       - ~/.Xauthority:/root/.Xauthority
       - ./tmp:/app/tmp
       - ./VisionController:/app/VisionController
-    network_mode: host
-    working_dir: /app
-    tty: true
-    stdin_open: true
-    privileged: false
-    restart: always
-
-  videowall-dev:
-    image: vwvisioncontrollerinfer:7.0
-    container_name: vw-dev
-    runtime: nvidia
-    command: /bin/bash
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    environment:
-      - DISPLAY=${DISPLAY}
-      - NVIDIA_DRIVER_CAPABILITIES=all
-      - NVIDIA_VISIBLE_DEVICES=all
-      - QT_X11_NO_MITSHM=1
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - /etc/X11:/etc/X11
-      - ~/.Xauthority:/root/.Xauthority
-      - ./tmp:/app/tmp
-      - ./VisionController:/app/VisionController
-    network_mode: host
-    working_dir: /app
-    tty: true
-    stdin_open: true
-    privileged: false
-    restart: always
-    
-  videowallinfer71:
-    image: vwvisioncontrollerinfer:7.1
-    runtime: nvidia
-    command: /bin/bash
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    environment:
-      - DISPLAY=${DISPLAY}
-      - NVIDIA_DRIVER_CAPABILITIES=all
-      - NVIDIA_VISIBLE_DEVICES=all
-      - QT_X11_NO_MITSHM=1
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - /etc/X11:/etc/X11
-      - ~/.Xauthority:/root/.Xauthority
-      - ./tmp:/app/tmp
+      - ./vapix_python:/app/vapix_python
     network_mode: host
     working_dir: /app
     tty: true
