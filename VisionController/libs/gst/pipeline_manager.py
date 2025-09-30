@@ -57,7 +57,7 @@ class PipelineManager:
         self.sources = [Source(id=i, name=f"Source {i}") for i in range(self.max_num_sources)]
         self.active_source_ips = []
         self.osd_managers = [OSDManager((1920, 1080)) for _ in range(self.max_num_sources)] 
-        self.tiler_probe_ids = []
+        self.tiler_probe_ids = {}
         self.monitor_timeout_id = None
 
         # Use RLock instead of Lock for reentrant locking
@@ -335,10 +335,45 @@ class PipelineManager:
         tiler_sink_pad = self.tiler.get_static_pad("sink")
         if not tiler_sink_pad:
             logger.warning("Unable to get Tiler sink pad")
-        else:
-            id = tiler_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_manager_probe, None)
-            # self.tiler_probe_ids.append(id)
+        else:       
+            self.add_probe("osd_text")
+            self.add_probe("person_warning")
 
+    def add_probe(self, type_of_probe):
+        if type_of_probe == "person_warning":
+            if "person_warning" in self.tiler_probe_ids:
+                logger.warning("Person warning probe already exists")
+                return
+
+            tiler_sink_pad = self.tiler.get_static_pad("sink")
+            if not tiler_sink_pad:
+                logger.warning("Unable to get Tiler sink pad")
+            else:
+                self.tiler_probe_ids["person_warning"] = tiler_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_person_warning_probe, None)
+        elif type_of_probe == "osd_text":
+            if "osd_text" in self.tiler_probe_ids:
+                logger.warning("OSD text probe already exists")
+                return
+
+            tiler_sink_pad = self.tiler.get_static_pad("sink")
+            if not tiler_sink_pad:
+                logger.warning("Unable to get Tiler sink pad")
+            else:
+                self.tiler_probe_ids["osd_text"] = tiler_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._osd_manager_probe, None)
+
+    def remove_probe(self, type_of_probe):
+        if type_of_probe == "person_warning":
+            probe_id = self.tiler_probe_ids["person_warning"]
+            tiler_sink_pad = self.tiler.get_static_pad("sink")
+            if tiler_sink_pad:
+                tiler_sink_pad.remove_probe(probe_id)
+            del self.tiler_probe_ids["person_warning"]
+        elif type_of_probe == "osd_text":
+            probe_id = self.tiler_probe_ids["osd_text"]
+            tiler_sink_pad = self.tiler.get_static_pad("sink")
+            if tiler_sink_pad:
+                tiler_sink_pad.remove_probe(probe_id)
+            del self.tiler_probe_ids["osd_text"]
 
     def _fill_with_placeholders(self):
         logger.info("Filling with placeholders")
@@ -523,226 +558,8 @@ class PipelineManager:
 
             return True   
 
-    def _update_features(self, camera_ip: str, features: dict):
-        feature_str = " ".join([f"{key}={value}" for key, value in features.items()])
 
-
-        src = self.pipeline.get_by_name(f"source-{camera_ip}")
-
-        if src is None:
-            logger.debug(f"Source {camera_ip} not found, cannot update features")
-            return False    
-
-        src.set_property("features", feature_str)
-
-        return True
-    
-
-    def get_exposure_bounds(self, source_id: int) -> Tuple[float, float]:
-        """
-        Get the exposure bounds for a specific source.
-
-        :param source_id: The ID of the source.
-        :type source_id: int
-
-        :return: The exposure bounds in unit interval (0 - 1).
-        :rtype: Tuple[float, float]
-
-        """
-
-        return self.sources[source_id].arv_camera.get_float_bounds("ExposureTime")
-    
-
-
-
-    def set_zoom(self, camera_ip: str, zoom: float):
-        """
-        Set the zoom for a specific source. If zoom is out of bounds, it will be clamped.
-
-        :param camera_ip: The IP of the camera.
-        :type camera_ip: str
-        :param zoom: The zoom value in unit interval (0 - 1)
-        :type zoom: float
-
-        """
-        
-        if zoom < 0.0 : zoom = 0.0
-        elif zoom > 1.0: zoom = 1.0
-        
-        scaled = int(zoom * 1000)
-        features = {"Zoom": scaled}
-
-        self._update_features(camera_ip, features)
-
-
-    def set_exposure_time(self, camera_ip: str, exposure_time: float):
-        """
-        Set the exposure time for a specific camera during manual exposure.
-
-        :param camera_ip: The IP of the camera.
-        :type camera_ip: str
-        :param exposure_time: The exposure time in unit interval (0 - 1).
-        :type exposure_time: int
-        """
-        
-        exposure_time = clamp(exposure_time, 0.0, 1.0)
-        scaled = int(exposure_time * 20000)
-
-        features = {"ExposureTime": scaled}
-
-        self._update_features(camera_ip, features)
-    
-
-    def set_exposure_time_source(self, source_id: int, exposure_time: float):
-        """
-        Set the exposure time for a specific source during manual exposure.
-
-        :param source_id: The ID of the source.
-        :type source_id: int
-        :param exposure_time: The exposure time in unit interval (0 - 1).
-        :type exposure_time: int
-        """
-        
-        exposure_time = clamp(exposure_time, 0.0, 1.0)
-        lower = self.sources[source_id].arv_camera.get_float_bounds("ExposureTime")[0]
-        scaled = int(exposure_time * 20000) + lower
-
-
-        self.sources[source_id].arv_camera.set_float("ExposureTime", scaled)
-
-
-    def set_gain_source(self, source_id: int, gain: float):
-        """
-        Set the gain for a specific source during manual exposure.
-        
-        :param source_id: The ID of the source.
-        :type source_id: int
-        
-        :param gain: The gain in unit interval (0 - 1).
-        :type gain: int
-        """
-
-        gain = clamp(gain, 0.0, 1.0)
-        scaled = gain * 24
-
-        self.sources[source_id].arv_camera.set_float("Gain", scaled)
-
-
-    def set_exposure_auto_source(self, source_id: int, exposure_auto: str):
-        """
-        Set the exposure auto for a specific source during manual exposure.
-
-        :param source_id: The ID of the source.
-        :type source_id: int
-        :param exposure_auto: The exposure auto mode.
-        :type exposure_auto: str
-        """
-
-        arv_camera = self.sources[source_id].arv_camera
-
-        arv_camera.set_string("ExposureAuto", exposure_auto)
-        arv_camera.set_string("GainAuto", exposure_auto)
-
-        if exposure_auto != "Off":
-            if self.sources[source_id].camera.type == "Basler":
-                arv_camera.set_float("AutoExposureTimeUpperLimit", 20000.0)
-                arv_camera.set_float("AutoExposureTimeLowerLimit", 1.0)
-                arv_camera.set_float("AutoGainUpperLimit", 24.0)
-                arv_camera.set_float("AutoGainLowerLimit", 0.0)
-                arv_camera.set_string("AutoFunctionProfile", "MinimizeGain")
-                arv_camera.set_string("AutoFunctionROISelector", "ROI1")
-                arv_camera.set_boolean("AutoFunctionROIUseBrightness", True)
-            elif self.sources[source_id].camera.type == "TheImagingSource":
-                arv_camera.set_boolean("ExposureAutoUpperLimitAuto", True) # Matches framerate
-                arv_camera.set_float("ExposureAutoLowerLimit", 1.0)
-                arv_camera.set_float("GainAutoUpperLimit", 24.0)
-                arv_camera.set_float("GainAutoLowerLimit", 0.0)
-                arv_camera.set_boolean("AutoFunctionsROIEnable", True)
-
-
-    def set_target_brightness_source(self, source_id: int, target_brightness: float):
-        """
-        Set the target brightness for a specific source during auto exposure.
-
-        :param source_id: The ID of the source.
-        :type source_id: int
-        :param target_brightness: The target brightness in unit interval (0 - 1).
-        :type target_brightness: int
-        """
-
-        if self.sources[source_id].camera.type == "Basler":
-            brightness = clamp(target_brightness, 0.0, 1.0)
-            brightness = scale(brightness, to_min=0.015, to_max=0.5)
-            self.sources[source_id].arv_camera.set_float("AutoTargetBrightness", brightness)
-            
-        elif self.sources[source_id].camera.type == "TheImagingSource":
-            brightness = clamp(target_brightness, 0.0, 1.0)
-            brightness = int(brightness * 255)
-            self.sources[source_id].arv_camera.set_integer("ExposureAutoReference", brightness)
-
-
-    def set_zoom_source(self, source_id: int, zoom: float):
-        """
-        Set the zoom for a specific source.
-
-        :param source_id: The ID of the source.
-        :type source_id: int
-        :param zoom: The zoom value. (0 - 1)
-        :type zoom: float
-        """
-
-        zoom = clamp(zoom, 0.0, 1.0)
-        scaled = scale(zoom, to_min=0, to_max=1000)
-        # scaled = scale(zoom, to_min=self.sources[source_id].limits['zoom_lower'], to_max=self.sources[source_id].limits['zoom_upper'])
-
-        self.sources[source_id].arv_camera.set_integer("Zoom", int(scaled))
-
-
-    def get_exposure_bounds(self, source_id: int) -> Tuple[float, float]:
-        """
-        Get the exposure bounds for a specific source.
-
-        :param source_id: The ID of the source.
-        :type source_id: int
-
-        :return: The exposure bounds
-        :rtype: Tuple[float, float]
-
-        """
-
-        return self.sources[source_id].arv_camera.get_float_bounds("ExposureTime")
-
-
-    def get_gain_bounds(self, source_id: int) -> Tuple[float, float]:
-        """
-        Get the gain bounds for a specific source.
-
-        :param source_id: The ID of the source.
-        :type source_id: int
-
-        :return: The gain bounds
-        :rtype: Tuple[float, float]
-
-        """
-
-        return self.sources[source_id].arv_camera.get_float_bounds("Gain")
-    
-
-    def get_zoom_bounds(self, source_id: int) -> Tuple[int, int]:
-        """
-        Get the zoom bounds for a specific source.
-
-        :param source_id: The ID of the source.
-        :type source_id: int
-
-        :return: The zoom bounds
-        :rtype: Tuple[int, int]
-
-        """
-
-        return self.sources[source_id].arv_camera.get_integer_bounds("Zoom")
-
-    def _print_fps(self):
+    def _update_fps(self):
         if not self.sink:
             return True
         
@@ -759,7 +576,7 @@ class PipelineManager:
         self.last_num_rendered_frames = rendered
         self.last_fps_time = current_time
 
-        print(f"FPS:    {round(delta)}")
+        # print(f"FPS:    {round(delta)}")
         self.fps = delta
 
         return True
@@ -968,6 +785,69 @@ class PipelineManager:
 
         return Gst.PadProbeReturn.OK
     
+    def _osd_person_warning_probe(self, pad, info, user_data):
+        gst_buffer = info.get_buffer()
+        if not gst_buffer:
+            logger.warning("Unable to get GstBuffer ")
+            return
+
+        try: 
+
+            batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
+            l_frame = batch_meta.frame_meta_list
+            while l_frame is not None:
+
+                try:
+                    frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
+                except StopIteration:
+                    break
+
+                display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+                display_meta.num_labels = 0
+
+                l_obj=frame_meta.obj_meta_list
+                while l_obj is not None:
+                    try:
+                        # Casting l_obj.data to pyds.NvDsObjectMeta
+                        obj_meta=pyds.NvDsObjectMeta.cast(l_obj.data)
+                    except StopIteration:
+                        break
+                    
+                    obj_meta.text_params.display_text = material_symbols["warning"]
+                    obj_meta.text_params.font_params.font_size = 50
+                    obj_meta.text_params.font_params.font_color.set(1,1,1,1)
+                    obj_meta.text_params.text_bg_clr.set(1,0,0,0.6)
+                    
+                    rect = obj_meta.rect_params
+                    rect.border_width = 5
+                    rect.border_color.set(1,0,0,0.6)
+                    obj_meta.text_params.x_offset = int(rect.left + rect.width // 2 - obj_meta.text_params.font_params.font_size)
+                    obj_meta.text_params.y_offset = int(max(0, rect.top - 8))
+                    
+                    
+
+                    try: 
+                        l_obj=l_obj.next
+                    except StopIteration:
+                        break
+
+
+                    # Attach once per frame
+                    pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+
+
+                try:
+                    l_frame=l_frame.next
+                except StopIteration:
+                    break
+                
+
+        except Exception as e:
+            logger.error(f"Exception: {type(e).__name__}: in _osd_person_warning_probe:  {str(e)}")
+
+        return Gst.PadProbeReturn.OK
+
+
     def __del__(self):
         self.stop()
 
