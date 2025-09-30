@@ -288,7 +288,7 @@ class App():
         elif subcommand == "ZoomSpeed":
             try:
                 zoom_speed = float(payload)
-            except TypeError as e:
+            except (TypeError, ValueError) as e:
                 logger.error(f"Wrong type provided as zoom speed (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
@@ -301,7 +301,7 @@ class App():
         elif subcommand == "PanSpeed":
             try:
                 pan_speed = float(payload)
-            except TypeError as e:
+            except (TypeError, ValueError) as e:
                 logger.error(f"Wrong type provided as pan speed (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
@@ -314,7 +314,7 @@ class App():
         elif subcommand == "TiltSpeed":
             try:
                 tilt_speed = float(payload)
-            except TypeError as e:
+            except (TypeError, ValueError) as e:
                 logger.error(f"Wrong type provided as tilt speed (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
@@ -327,7 +327,7 @@ class App():
         elif subcommand == "Brightness":
             try:
                 brightness = float(payload)
-            except TypeError as e:
+            except (TypeError, ValueError) as e:
                 logger.error(f"Wrong type provided as brightness (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
@@ -340,7 +340,7 @@ class App():
         elif subcommand == "ZoomAbs":
             try:
                 zoom_abs = float(payload)
-            except TypeError as e:
+            except (TypeError, ValueError) as e:
                 logger.error(f"Wrong type provided absolute zoom (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
@@ -353,7 +353,7 @@ class App():
         elif subcommand == "PanAbs":
             try:
                 pan_abs = float(payload)
-            except TypeError as e:
+            except (TypeError, ValueError) as e:
                 logger.error(f"Wrong type provided as pan speed (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
@@ -366,7 +366,7 @@ class App():
         elif subcommand == "TiltAbs":
             try:
                 tilt_abs = float(payload)
-            except TypeError as e:
+            except (TypeError, ValueError) as e:
                 logger.error(f"Wrong type provided for absolute tilt (float expected)\nProvided: {payload}.\nError: {e}")
 
             try:
