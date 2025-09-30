@@ -101,7 +101,7 @@ class PipelineManager:
             self.shutdown_callback()
             return
 
-        GLib.timeout_add(10000, self._print_fps)
+        GLib.timeout_add(1000, self._update_fps)
         # GLib.timeout_add(5000, self._test_add_remove_source)
 
         self.start_monitoring()  # Start monitoring sources
@@ -647,9 +647,9 @@ class PipelineManager:
                             x_off = 0
                             if text_dicts[i]['alignment'] is not None:
                                 x_off = calculate_text_offset(text_dicts[i]["text"], text_dicts[i]["font_size"], text_dicts[i]['alignment'])
-                            
-                            text_param.x_offset = text_dicts[i]["x"] + x_off
-                            text_param.y_offset = text_dicts[i]["y"]
+
+                            text_param.x_offset = min(max(text_dicts[i]["x"] + x_off, 0), 1920)
+                            text_param.y_offset = min(max(text_dicts[i]["y"], 0), 1080)
                             text_param.font_params.font_name = text_dicts[i]["font_name"]
                             text_param.font_params.font_size = text_dicts[i]["font_size"]
                             text_param.font_params.font_color.set(*text_dicts[i]["font_color"])
@@ -733,6 +733,8 @@ class PipelineManager:
 
                 # display_meta = draw_warning_triangle(self.nvosd, display_meta, offset_x, offset_y, base_length)
 
+
+                '''  === PTS OSD for debugging ===
                 # Display PTS (timestamp) of the current frame
                 pts_time = frame_meta.buf_pts
                 ntp_ts = frame_meta.ntp_timestamp
@@ -743,23 +745,23 @@ class PipelineManager:
                     "font_name": "Serif",
                     "font_size": 15,
                     "font_color": (1.0, 1.0, 1.0, 1.0),
-                    "bg_color": (0.0, 0.0, 0.0, 0.6),
+                    "bg_color": (0.0, 0.0, 0.0, 1),
                     "alignment": None
                 }
 
-                # place in the middle of the screen of a 2x2 tile
+                # place in the bottom of the screen of a 2x2 tile
                 if source_id == 0:
                     pts_text["x"] = 1920
-                    pts_text["y"] = 1050
+                    pts_text["y"] = 1080+910
                 elif source_id == 1:
                     pts_text["x"] = 0
-                    pts_text["y"] = 1080
+                    pts_text["y"] = 1080+940
                 elif source_id == 2:
                     pts_text["x"] = 1920
-                    pts_text["y"] = 30
+                    pts_text["y"] = 970
                 elif source_id == 3:
                     pts_text["x"] = 0
-                    pts_text["y"] = 60
+                    pts_text["y"] = 1000
                     
 
                 display_meta.num_labels += 1
@@ -772,6 +774,7 @@ class PipelineManager:
                 text_param.font_params.font_color.set(*pts_text["font_color"])
                 text_param.set_bg_clr = 1
                 text_param.text_bg_clr.set(*pts_text["bg_color"])
+                '''
 
                 pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
                 
