@@ -5,6 +5,7 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 
 PLACEHOLDER_PATH = "VisionController/data/assets/image_placeholder.png"
+PLACEHOLDER_URI = "file:///app/VisionController/data/assets/image_placeholder.png"
 
 def create_source_bin(index: int, camera = None) -> Gst.Bin:
     global PLACEHOLDER_PATH
@@ -77,7 +78,6 @@ def create_source_bin(index: int, camera = None) -> Gst.Bin:
     bin.add(capsfilter3)
     bin.add(queue)
 
-    # Correct linking order (you forgot to use imagefreeze!)
     src_element.link(png_decoder)
     png_decoder.link(videoconvert)
     videoconvert.link(capsfilter1)

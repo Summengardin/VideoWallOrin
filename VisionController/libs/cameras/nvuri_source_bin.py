@@ -29,10 +29,10 @@ def create_source_bin(index: int, camera = None) -> Gst.Bin:
         return None
 
     nvurisrcbin.set_property("uri", uri)
-    nvurisrcbin.set_property("latency", 0)  # Jitterbuffer size in milliseconds
+    nvurisrcbin.set_property("latency", 50)  # Jitterbuffer size in milliseconds
     nvurisrcbin.set_property("low-latency-mode", 1)
     nvurisrcbin.set_property("drop-frame-interval", 0)
-    nvurisrcbin.set_property("num-extra-surfaces", 6) 
+    nvurisrcbin.set_property("num-extra-surfaces", 12) 
     nvurisrcbin.set_property("file-loop", 1)  # Loop the file
     nvurisrcbin.set_property("rtsp-reconnect-interval", 0)  # Timeout in seconds to wait before reconnection
     nvurisrcbin.set_property("rtsp-reconnect-attempts", 0)  # Set rtsp reconnect attempt value
@@ -90,7 +90,7 @@ def decodebin_child_added(child_proxy, Object, name, data):
         Object.set_property("drop-frame-interval", 0)
 
     elif element_type == "queue":
-        if name != "dec_queue":
+        if name != "dec_que":
             Object.set_property("max-size-buffers", 1)
             Object.set_property("max-size-bytes", 0)
             Object.set_property("max-size-time", 0)
