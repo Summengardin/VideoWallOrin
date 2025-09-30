@@ -2,8 +2,10 @@ import json
 import threading
 import time
 import queue
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import concurrent.futures as cf
 import subprocess
+import signal
+import os
 import re
 import multiprocessing as mp
 import sys
@@ -43,7 +45,7 @@ class App():
         self.camera_factory.load_providers_from_config_file(self.config_file)
 
         self.command_queue = queue.Queue()
-        self.executor = ThreadPoolExecutor(max_workers=4)
+        self.executor = cf.ThreadPoolExecutor(max_workers=4)
         
         # MQTT   
         self.topics = load_mqtt_topics(self.mqtt_config)
@@ -483,35 +485,52 @@ class App():
         self.command_queue.put((message.topic, payload))
         # logger.debug(f"Queued:    {message.topic}: {payload}")
 
-    def _check_rtsp_feed(self, uri, timeout_seconds=0.5):
+
+    def _check_rtsp_feed(self, uri, timeout_seconds=1):
         """Check if an RTSP feed is available using ffprobe."""
-        timeout_microseconds = int(timeout_seconds * 1000000)
-        cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-stimeout', f'{timeout_seconds}', '-i', uri,
-              '-show_entries', 'stream=codec_type',
-              '-of', 'default=noprint_wrappers=1:nokey=1']
-        
         if uri == "test":
             return True
+        elif uri == "":
+            return False
 
+        micro = int(timeout_seconds * 1_000_000)
+
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-stimeout", str(micro),
+            "-rw_timeout", str(micro),
+            "-rtsp_transport", "tcp",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=codec_type",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-i", uri,
+        ]
+
+        # Use Popen so we can kill the whole process group on timeout
         try:
-            subprocess.run(
+            p = subprocess.Popen(
                 cmd,
-                capture_output=True,
-                text=True, 
-                timeout=timeout_seconds + 0.5, 
-                check=True,                  
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,  # new pgid so we can kill children too
             )
-            return True
-        
-        except subprocess.CalledProcessError as e:
-            # stream was probed but unavailable
-            # logger.debug(f"RTSP feed check failed for {uri}: {e.stderr.strip()}")
-            return False
+            stdout, stderr = p.communicate(timeout=timeout_seconds + 0.5)
+
+            
+
+            return p.returncode == 0
         except subprocess.TimeoutExpired:
-            # logger.debug(f"RTSP feed check timed out for {uri} after {timeout_seconds}s")
+            # Kill the entire process group; ffprobe can occasionally stick
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except Exception:
+                pass
             return False
-        except Exception as e:
-            # logger.debug(f"Error checking RTSP feed {uri}: {e}")
+        except subprocess.CalledProcessError:
+            return False
+        except Exception:
             return False
 
 
@@ -543,7 +562,6 @@ class App():
     
 
     def _monitor_cameras_process(self, mqtt_pub_queue: mp.Queue = None):
-        run_counter = 0
         n_workers = 8
 
         # Virtual cameras are always online
@@ -552,18 +570,18 @@ class App():
 
         last_published = {}  # cam_id -> bool  (DON'T prefill from camera_status)
 
-        with ThreadPoolExecutor(max_workers=max(1, n_workers)) as executor:
+        with cf.ThreadPoolExecutor(max_workers=max(1, n_workers)) as executor:
             while not self.camera_monitor_stop_event.is_set():
                 try:
                     futures = {}
                     for cam_id, uri in self.camera_uris.items():
-                        if cam_id != "test" and uri:
+                        if cam_id != "Test" and uri:
                             future = executor.submit(self._check_rtsp_feed, uri)
                             futures[future] = cam_id
                         else:
                             # Invalid/Virtual cameras
                             prev_pub = last_published.get(cam_id)
-                            status = cam_id == 'test'
+                            status = cam_id == 'Test'
                             if prev_pub is None:
                                 evt = { "type": "CameraStatus",
                                         "cam_id": cam_id,
@@ -572,12 +590,12 @@ class App():
                                 try:
                                     if mqtt_pub_queue is not None:
                                         mqtt_pub_queue.put_nowait(evt)
-                                    last_published[cam_id] = status
+                                        last_published[cam_id] = status
                                     logger.debug(f"Queued MQTT status {cam_id} -> {status}")
                                 except Exception:
                                     logger.warning(f"MQTT publisher queue is full; dropped {cam_id}")
 
-                    for future in as_completed(futures):
+                    for future in cf.as_completed(futures):
                         cam_id = futures[future]
                         try:
                             new_status = bool(future.result())
@@ -586,7 +604,6 @@ class App():
 
                         old_status = self.camera_status.get(cam_id, False)
 
-                        # your disconnect logic stays the same...
                         if old_status and not new_status:
                             current_time = time.time()
                             logger.info(f"Camera:{cam_id} is now OFFLINE")
@@ -602,7 +619,6 @@ class App():
                                 self.camera_status[cam_id] = False
                                 self.disconnect_counters[cam_id] = 0
 
-                        # Update measured status
                         self.camera_status[cam_id] = new_status
 
                         # Publish only status on update
