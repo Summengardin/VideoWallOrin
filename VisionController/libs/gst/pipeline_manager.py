@@ -327,8 +327,9 @@ class PipelineManager:
 
         for (var_name1, element1), (var_name2, element2) in pairwise(self.elements.items()):
             if not element1.link(element2):
-                logger.error(f"Elements {var_name1} and {var_name2}  couldn't be linked")
-
+                logger.error(f"Elements {var_name1} and {var_name2} couldn't be linked")
+                self.shutdown_callback()
+                return
 
     def _add_probes(self):
         tiler_sink_pad = self.tiler.get_static_pad("sink")
