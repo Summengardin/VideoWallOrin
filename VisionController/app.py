@@ -40,7 +40,7 @@ class App():
         self.config = parse_config(config_file)
         self.mqtt_config = self.config['mqtt']
         self.pipeline_config = self.config['pipeline']
-        self.general_config = self.config['general']
+        # self.general_config = self.config['general']
         self.camera_factory = CameraFactory()
         self.camera_factory.load_providers_from_config_file(self.config_file)
 
